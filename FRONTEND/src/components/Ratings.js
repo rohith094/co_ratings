@@ -44,7 +44,7 @@ const Ratings = () => {
       const token = Cookies.get('studenttoken');
       const { jntuno } = JSON.parse(atob(token.split('.')[1]));
       await axios.post(
-        'https://co-ratings-iq3i.onrender.com/student/submitfeedback',
+        'https://co-rating-qn28.onrender.com/student/submitfeedback',
         { jntuno },
         { headers: { Authorization: `${token}` } }
       );
@@ -62,7 +62,7 @@ const Ratings = () => {
     try {
       const token = Cookies.get('studenttoken');
       const { jntuno } = JSON.parse(atob(token.split('.')[1]));
-      const response = await axios.get(`https://co-ratings-iq3i.onrender.com/student/studentinfo/${jntuno}`, {
+      const response = await axios.get(`https://co-rating-qn28.onrender.com/student/studentinfo/${jntuno}`, {
         headers: { Authorization: `${token}` },
       });
       const data = response.data;
@@ -80,7 +80,7 @@ const Ratings = () => {
   const checkRatedSubjects = async (jntuno) => {
     try {
       const token = Cookies.get('studenttoken');
-      const response = await axios.get(`https://co-ratings-iq3i.onrender.com/ratings/checkratedsubjects/${jntuno}`, {
+      const response = await axios.get(`https://co-rating-qn28.onrender.com/ratings/checkratedsubjects/${jntuno}`, {
         headers: { Authorization: `${token}` },
       });
       setSubmittedSubjects(response.data);
@@ -93,7 +93,7 @@ const Ratings = () => {
     setLoading(true);
     try {
       const token = Cookies.get('studenttoken');
-      const response = await axios.get(`https://co-ratings-iq3i.onrender.com/student/subjects/${semesternumber}/${branchcode}`, {
+      const response = await axios.get(`https://co-rating-qn28.onrender.com/student/subjects/${semesternumber}/${branchcode}`, {
         headers: { Authorization: `${token}` },
       });
       setSubjects(response.data);
@@ -107,7 +107,7 @@ const Ratings = () => {
   const fetchCourseOutcomes = async (subjectCode) => {
     try {
       const token = Cookies.get('studenttoken');
-      const response = await axios.get(`https://co-ratings-iq3i.onrender.com/student/courseoutcomes/${subjectCode}`, {
+      const response = await axios.get(`https://co-rating-qn28.onrender.com/student/courseoutcomes/${subjectCode}`, {
         headers: { Authorization: `${token}` },
       });
       setCourseOutcomes((prev) => ({
@@ -157,7 +157,7 @@ const Ratings = () => {
       }));
 
       await axios.post(
-        'https://co-ratings-iq3i.onrender.com/ratings/addrating',
+        'https://co-rating-qn28.onrender.com/ratings/addrating',
         { jntuno, subjectcode: subjectCode, ratings: subjectRatings },
         {
           headers: {
@@ -193,7 +193,7 @@ const Ratings = () => {
       const token = Cookies.get('studenttoken');
       const { jntuno } = JSON.parse(atob(token.split('.')[1]));
       const response = await axios.post(
-        'https://co-ratings-iq3i.onrender.com/student/finalsubmit',
+        'https://co-rating-qn28.onrender.com/student/finalsubmit',
         { jntuno },
         { headers: { Authorization: `${token}` } }
       );
