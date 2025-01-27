@@ -21,7 +21,7 @@ const Login = () => {
     setLoading(true);
 
     try {
-      const response = await axios.post('http://localhost:3002/student/login', { jntuno });
+      const response = await axios.post('https://co-rating-qn28.onrender.com/student/login', { jntuno });
 
       if (response.status === 200 && response.data.status === 'success') {
         Cookies.set('studenttoken', response.data.token, { expires: 2 / 24 });
