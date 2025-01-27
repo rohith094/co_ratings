@@ -1,0 +1,45 @@
+CREATE TABLE students (
+    studentid INT AUTO_INCREMENT unique,
+    jntuno VARCHAR(20) NOT NULL primary key,
+    name VARCHAR(100) NOT NULL,
+    semesternumber INT NOT NULL,
+    branchcode int NOT NULL
+); 
+
+CREATE TABLE subjects (
+    subjectid INT AUTO_INCREMENT unique,
+    subjectcode varchar(20) not null primary key,
+    subjectname VARCHAR(100) NOT NULL,
+    semesternumber INT NOT NULL,
+    branchcode int NOT NULL
+);
+
+alter table students modify jntuno varchar(255) not null;
+CREATE TABLE courseoutcomes (
+    subjectcode varchar(20) NOT NULL,
+    cocode VARCHAR(10) NOT NULL,
+    coname VARCHAR(255) NOT NULL,
+    PRIMARY KEY (subjectcode, cocode),
+    FOREIGN KEY (subjectcode) REFERENCES subjects(subjectcode) ON DELETE CASCADE
+);
+
+CREATE TABLE ratings (
+    ratingid INT AUTO_INCREMENT PRIMARY KEY,
+    jntuno varchar(255) NOT NULL,
+    subjectcode varchar(255) NOT NULL,
+    cocode VARCHAR(10) NOT NULL,
+    rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (jntuno) REFERENCES students(jntuno) on delete cascade,
+    FOREIGN KEY (subjectcode, cocode) REFERENCES courseoutcomes(subjectcode, cocode) on delete cascade
+);
+
+CREATE TABLE overallratings (
+    jntuno varchar(255) NOT NULL,
+    subjectcode varchar(20) NOT NULL,
+    overall_rating FLOAT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (jntuno, subjectcode),
+    FOREIGN KEY (jntuno) REFERENCES students(jntuno) ON DELETE CASCADE,
+    FOREIGN KEY (subjectcode) REFERENCES subjects(subjectcode) ON DELETE CASCADE
+);
