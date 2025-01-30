@@ -121,31 +121,60 @@ const Ratings = () => {
     }
   };
 
+  // const fetchCourseOutcomes = async (subjectCode) => {
+  //   try {
+  //     const token = Cookies.get('studenttoken');
+  //     const response = await axios.get(`https://co-rating-qn28.onrender.com/student/courseoutcomes/${subjectCode}`, {
+  //       headers: { Authorization: `${token}` },
+  //     });
+  //     setCourseOutcomes((prev) => ({
+  //       ...prev,
+  //       [subjectCode]: response.data,
+  //     }));
+  //   } catch (err) {
+  //     console.error('Error fetching course outcomes:', err);
+  //   }
+  // };
+
   const fetchCourseOutcomes = async (subjectCode) => {
     try {
       const token = Cookies.get('studenttoken');
       const response = await axios.get(`https://co-rating-qn28.onrender.com/student/courseoutcomes/${subjectCode}`, {
         headers: { Authorization: `${token}` },
       });
-      setCourseOutcomes((prev) => ({
-        ...prev,
-        [subjectCode]: response.data,
-      }));
+  
+      const defaultRatings = response.data.reduce((acc, co) => {
+        acc[co.cocode] = 5; // Default to 4 stars
+        return acc;
+      }, {});
+  
+      setCourseOutcomes((prev) => ({ ...prev, [subjectCode]: response.data }));
+      setRatings((prev) => ({ ...prev, [subjectCode]: defaultRatings }));
     } catch (err) {
       console.error('Error fetching course outcomes:', err);
     }
   };
+  
+  // const handleRatingChange = (subjectCode, cocode, value) => {
+  //   setRatings((prev) => ({
+  //     ...prev,
+  //     [subjectCode]: {
+  //       ...(prev[subjectCode] || {}),
+  //       [cocode]: value,
+  //     },
+  //   }));
+  // };
 
   const handleRatingChange = (subjectCode, cocode, value) => {
     setRatings((prev) => ({
       ...prev,
       [subjectCode]: {
         ...(prev[subjectCode] || {}),
-        [cocode]: value,
+        [cocode]: value, // Update selected rating
       },
     }));
   };
-
+  
   const areAllCOsRated = (subjectCode) => {
     const subjectRatings = ratings[subjectCode] || {};
     return (
@@ -206,26 +235,6 @@ const Ratings = () => {
     }
   };
 
-  // const fetchFeedbackStatus = async () => {
-  //   try {
-  //     const token = Cookies.get('studenttoken');
-  //     const { jntuno } = JSON.parse(atob(token.split('.')[1]));
-  //     const response = await axios.post(
-  //       'https://co-rating-qn28.onrender.com/student/finalsubmit',
-  //       { jntuno },
-  //       { headers: { Authorization: `${token}` } }
-  //     );
-
-  //     if (response.data.feedback_submitted) {
-  //       navigate('/feedbacksubmitted'); // Redirect to Thank You page
-  //     } else {
-  //       fetchStudentInfo();
-  //     }
-  //   } catch (error) {
-  //     console.error('Error checking feedback status:', error);
-  //     toast.error('Error checking feedback status');
-  //   }
-  // };
 
   const fetchFeedbackStatus = async () => {
     try {
@@ -264,15 +273,6 @@ const Ratings = () => {
             onClick={handleFinalSubmit}
           >
             Final Submit
-          </button>
-          <button
-            className="bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded cursor-pointer"
-            onClick={() => {
-              Cookies.remove('studenttoken');
-              navigate('/login');
-            }}
-          >
-            Logout
           </button>
         </div>
       </nav>
