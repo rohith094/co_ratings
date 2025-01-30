@@ -40,9 +40,9 @@ const Ratings = () => {
     }
   }, [ratings, subjects, courseOutcomes]);
 
-  const fetchOpenElectives = async () => {
+  const fetchOpenElectives = async (semesternumber, branchcode) => {
     const token = Cookies.get('studenttoken');
-    const { semesternumber, branchcode } = studentInfo;
+    // const { semesternumber, branchcode } = studentInfo;
     try {
       const response = await axios.get(
         `https://co-rating-qn28.onrender.com/student/fetchopenelectives/${semesternumber}/${branchcode}`,
