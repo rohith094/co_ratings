@@ -5,8 +5,12 @@ import fs from "fs";
 import path from "path";
 import AdminAuth from "./AdminAuth.js";
 import jwt from 'jsonwebtoken';
+import multer from "multer";
+import xlsx from "xlsx";
+// import fs from "fs";
 const router = express.Router();
 
+const upload = multer({ dest: "uploads/" });
 
 router.post('/login', async (req, res) => {
   const { mobilenumber, password } = req.body;
@@ -143,5 +147,332 @@ router.get('/generatereport',AdminAuth, async (req, res) => {
     res.status(500).send('An error occurred while generating the report');
   }
 });
+
+//adding students 
+router.post('/addstudents', AdminAuth, upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded. Please upload a valid Excel file.' });
+  }
+
+  const filePath = req.file.path;
+
+  try {
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet);
+
+    if (data.length === 0) {
+      fs.unlinkSync(filePath);
+      return res.status(400).json({ error: 'Uploaded file is empty. Please provide valid student data.' });
+    }
+
+    const duplicateEntries = [];
+    const addedEntries = [];
+
+    for (const [index, student] of data.entries()) {
+      const { jntuno, name, semesternumber, branchcode } = student;
+
+      if (!jntuno || !name || !semesternumber || !branchcode) {
+        fs.unlinkSync(filePath);
+        return res.status(400).json({ 
+          error: `Missing required fields in row ${index + 1}: ${JSON.stringify(student)}. Please check the Excel file.` 
+        });
+      }
+
+      try {
+        const checkQuery = `SELECT * FROM students WHERE jntuno = ?`;
+        const [existingStudent] = await connection.query(checkQuery, [jntuno]);
+
+        if (existingStudent.length > 0) {
+          duplicateEntries.push(jntuno);
+          console.log(`Duplicate entry found: JNTU No: ${jntuno}`); // Console log duplicate data
+          continue;
+        }
+
+        const insertQuery = `
+          INSERT INTO students (jntuno, name, semesternumber, branchcode)
+          VALUES (?, ?, ?, ?)
+        `;
+        await connection.query(insertQuery, [jntuno, name, semesternumber, branchcode]);
+        addedEntries.push(jntuno);
+      } catch (dbError) {
+        fs.unlinkSync(filePath);
+        return res.status(500).json({ 
+          error: `Database error while inserting student with JNTU No: ${jntuno}`,
+          details: dbError.message 
+        });
+      }
+    }
+
+    fs.unlinkSync(filePath);
+
+    console.log(`Duplicate Entries: ${duplicateEntries.length > 0 ? duplicateEntries.join(', ') : 'None'}`);
+
+    res.status(200).json({
+      message: 'Bulk upload completed successfully.',
+      addedEntries,
+      duplicateEntries,
+    });
+  } catch (error) {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    res.status(500).json({ 
+      error: 'An error occurred while processing the Excel file. Please check the file format and data structure.', 
+      details: error.message 
+    });
+  }
+});
+
+//subject routes
+
+router.post('/addsubjects', AdminAuth, upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  const filePath = req.file.path;
+
+  try {
+    // Read the Excel file from the disk
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet);
+
+    // Iterate through the data array and insert each subject into the database
+    for (const subject of data) {
+      const { subjectcode, subjectname, semesternumber, branchcode } = subject;
+
+      // Validate required fields
+      if (!subjectcode || !subjectname || !semesternumber || !branchcode) {
+        return res
+          .status(400)
+          .json({ error: `Invalid data in row: ${JSON.stringify(subject)}` });
+      }
+
+      // Check for duplicate entry based on subjectcode, semesternumber, and branchcode
+      const checkQuery = `SELECT * FROM subjects WHERE subjectcode = ? AND semesternumber = ? AND branchcode = ?`;
+      const [existingSubject] = await connection.query(checkQuery, [subjectcode, semesternumber, branchcode]);
+
+      if (existingSubject.length > 0) {
+        console.log(`Duplicate subject skipped: ${subjectcode}, Semester: ${semesternumber}, Branch: ${branchcode}`);
+        continue; // Skip adding this record
+      }
+
+      // Insert the subject into the database
+      const insertQuery = `
+        INSERT INTO subjects (subjectcode, subjectname, semesternumber, branchcode)
+        VALUES (?, ?, ?, ?)
+      `;
+
+      await connection.query(insertQuery, [
+        subjectcode,
+        subjectname,
+        semesternumber,
+        branchcode,
+      ]);
+    }
+
+    // Delete the file after processing
+    fs.unlinkSync(filePath);
+
+    res.status(200).json({ message: 'Subjects added successfully' });
+  } catch (error) {
+    console.error('Error adding subjects:', error);
+
+    // Delete the file in case of an error
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    res.status(500).json({ error: 'Error adding subjects', details: error.message });
+  }
+});
+
+//courseoutcomes 
+
+router.post('/addcourseoutcomes', AdminAuth, upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  const filePath = req.file.path;
+
+  try {
+    // Read the Excel file from the disk
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet);
+
+    // Iterate through the data array and insert each course outcome into the database
+    for (const outcome of data) {
+      const { subjectcode, cocode, coname } = outcome;
+
+      // Skip completely empty rows
+      if (!subjectcode && !cocode) {
+        console.log('Empty row skipped.');
+        continue;
+      }
+
+      // Validate required fields (subjectcode and cocode are mandatory)
+      if (!subjectcode || !cocode) {
+        console.log(`Invalid data in row skipped: ${JSON.stringify(outcome)}`);
+        continue; // Skip invalid row
+      }
+
+      // Assign "No coname" if coname is missing
+      const courseName = coname ? coname : "No coname";
+
+      // Check if the subjectcode exists in the subjects table (foreign key check)
+      const subjectCheckQuery = `SELECT * FROM subjects WHERE subjectcode = ?`;
+      const [subjectExists] = await connection.query(subjectCheckQuery, [subjectcode]);
+
+      if (subjectExists.length === 0) {
+        console.log(`Subject does not exist, skipping CO: ${subjectcode}, ${cocode}`);
+        continue; // Skip adding this CO
+      }
+
+      // Check for duplicate entry based on subjectcode and cocode
+      const checkQuery = `SELECT * FROM courseoutcomes WHERE subjectcode = ? AND cocode = ?`;
+      const [existingCO] = await connection.query(checkQuery, [subjectcode, cocode]);
+
+      if (existingCO.length > 0) {
+        console.log(`Duplicate CO skipped: ${subjectcode}, ${cocode}`);
+        continue; // Skip adding this record
+      }
+
+      // Insert the course outcome into the database
+      const insertQuery = `
+        INSERT INTO courseoutcomes (subjectcode, cocode, coname)
+        VALUES (?, ?, ?)
+      `;
+
+      await connection.query(insertQuery, [
+        subjectcode,
+        cocode,
+        courseName, // Use "No coname" if coname is missing
+      ]);
+    }
+
+    // Delete the file after processing
+    fs.unlinkSync(filePath);
+
+    res.status(200).json({ message: 'Course Outcomes added successfully' });
+  } catch (error) {
+    console.error('Error adding course outcomes:', error);
+
+    // Delete the file in case of an error
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    res.status(500).json({ error: 'Error adding course outcomes', details: error.message });
+  }
+});
+
+router.post('/addsubject', async (req, res) => {
+  try {
+    const { subjectcode, subjectname, semesternumber, branchcode } = req.body;
+
+    // Check if the subjectcode already exists
+    const checkQuery = `SELECT * FROM subjects WHERE subjectcode = ?`;
+    const [existingSubject] = await connection.query(checkQuery, [subjectcode]);
+
+    if (existingSubject.length > 0) {
+      // Update existing subject
+      const updateQuery = `
+        UPDATE subjects 
+        SET subjectname = ?, semesternumber = ?, branchcode = ? 
+        WHERE subjectcode = ?
+      `;
+      await connection.query(updateQuery, [subjectname, semesternumber, branchcode, subjectcode]);
+
+      return res.status(200).json({ message: 'Subject updated successfully', subjectcode });
+    } else {
+      // Insert new subject
+      const insertQuery = `
+        INSERT INTO subjects (subjectcode, subjectname, semesternumber, branchcode)
+        VALUES (?, ?, ?, ?)
+      `;
+      await connection.query(insertQuery, [subjectcode, subjectname, semesternumber, branchcode]);
+
+      return res.status(201).json({ message: 'Subject added successfully', subjectcode });
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to add/update subject', details: err.message });
+  }
+});
+
+// router.post('/addstudents', upload.single('file'), async (req, res) => {
+//   if (!req.file) {
+//     return res.status(400).json({ error: 'No file uploaded' });
+//   }
+
+//   const filePath = req.file.path;
+
+//   try {
+//     const workbook = xlsx.readFile(filePath);
+//     const sheetName = workbook.SheetNames[0];
+//     const sheet = workbook.Sheets[sheetName];
+//     const data = xlsx.utils.sheet_to_json(sheet);
+
+//     console.log('Parsed data:', data);
+
+//     const duplicateEntries = [];
+//     const addedEntries = [];
+
+//     for (const student of data) {
+//       console.log('Processing row:', student);
+
+//       if (!student || Object.values(student).every((value) => value === null || value === '')) {
+//         continue; // Skip empty rows
+//       }
+
+//       const { jntuno, name, semesternumber, branchcode } = student;
+
+//       if (!jntuno || !name || !semesternumber || !branchcode) {
+//         console.error('Invalid data:', student);
+//         return res
+//           .status(400)
+//           .json({ error: `Invalid data in row: ${JSON.stringify(student)}` });
+//       }
+
+//       const checkQuery = `SELECT * FROM students WHERE jntuno = ?`;
+//       const [existingStudent] = await connection.query(checkQuery, [jntuno]);
+
+//       if (existingStudent.length > 0) {
+//         duplicateEntries.push(jntuno);
+//         continue;
+//       }
+
+//       const insertQuery = `
+//         INSERT INTO students (jntuno, name, semesternumber, branchcode)
+//         VALUES (?, ?, ?, ?)
+//       `;
+//       await connection.query(insertQuery, [jntuno, name, semesternumber, branchcode]);
+//       addedEntries.push(jntuno);
+//     }
+
+//     fs.unlinkSync(filePath);
+
+//     res.status(200).json({
+//       message: 'Bulk upload completed',
+//       addedEntries,
+//       duplicateEntries,
+//     });
+//   } catch (error) {
+//     console.error('Error adding students:', error);
+
+//     if (fs.existsSync(filePath)) {
+//       fs.unlinkSync(filePath);
+//     }
+
+//     res.status(500).json({ error: 'Error adding students', details: error.message });
+//   }
+// });
 
 export default router;

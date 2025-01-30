@@ -60,138 +60,6 @@ router.post("/login", async (req, res) => {
 });
 
 
-// router.post("/addstudents", upload.single("file"), async (req, res) => {
-//   if (!req.file) {
-//     return res.status(400).json({ error: "No file uploaded" });
-//   }
-
-//   const filePath = req.file.path;
-
-//   try {
-//     // Read the Excel file from the disk
-//     const workbook = xlsx.readFile(filePath);
-//     const sheetName = workbook.SheetNames[0];
-//     const sheet = workbook.Sheets[sheetName];
-//     const data = xlsx.utils.sheet_to_json(sheet);
-
-//     // Iterate through the data array and insert each student into the database
-//     for (const student of data) {
-//       const { jntuno, name, semesternumber, branchcode } = student;
-
-//       // Validate required fields
-//       if (!jntuno || !name || !semesternumber || !branchcode) {
-//         return res
-//           .status(400)
-//           .json({ error: `Invalid data in row: ${JSON.stringify(student)}` });
-//       }
-
-//       // Check for duplicate jntuno
-//       const checkQuery = `SELECT * FROM students WHERE jntuno = ?`;
-//       const [existingStudent] = await connection.query(checkQuery, [jntuno]);
-
-//       if (existingStudent.length > 0) {
-//         console.log(`Duplicate student skipped: ${jntuno}`);
-//         continue; // Skip adding this record
-//       }
-
-//       // Insert the student into the database
-//       const insertQuery = `
-//         INSERT INTO students (jntuno, name, semesternumber, branchcode)
-//         VALUES (?, ?, ?, ?)
-//       `;
-
-//       await connection.query(insertQuery, [
-//         jntuno,
-//         name,
-//         semesternumber,
-//         branchcode,
-//       ]);
-//     }
-
-//     // Delete the file after processing
-//     fs.unlinkSync(filePath);
-
-//     res.status(200).json({ message: "Students added successfully" });
-//   } catch (error) {
-//     console.error("Error adding students:", error);
-
-//     // Delete the file in case of an error
-//     if (fs.existsSync(filePath)) {
-//       fs.unlinkSync(filePath);
-//     }
-
-//     res.status(500).json({ error: "Error adding students", details: error.message });
-//   }
-// });
-
-router.post('/addstudents', upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
-  }
-
-  const filePath = req.file.path;
-
-  try {
-    // Read the Excel file from the disk
-    const workbook = xlsx.readFile(filePath);
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const data = xlsx.utils.sheet_to_json(sheet);
-
-    const duplicateEntries = [];
-    const addedEntries = [];
-
-    // Iterate through the data array and insert each student into the database
-    for (const student of data) {
-      const { jntuno, name, semesternumber, branchcode } = student;
-
-      // Validate required fields
-      if (!jntuno || !name || !semesternumber || !branchcode) {
-        return res
-          .status(400)
-          .json({ error: `Invalid data in row: ${JSON.stringify(student)}` });
-      }
-
-      // Check for duplicate jntuno
-      const checkQuery = `SELECT * FROM students WHERE jntuno = ?`;
-      const [existingStudent] = await connection.query(checkQuery, [jntuno]);
-
-      if (existingStudent.length > 0) {
-        duplicateEntries.push(jntuno); // Track duplicates
-        continue; // Skip adding this record
-      }
-
-      // Insert the student into the database
-      const insertQuery = `
-        INSERT INTO students (jntuno, name, semesternumber, branchcode)
-        VALUES (?, ?, ?, ?)
-      `;
-      await connection.query(insertQuery, [jntuno, name, semesternumber, branchcode]);
-      addedEntries.push(jntuno); // Track added entries
-    }
-
-    // Delete the file after processing
-    fs.unlinkSync(filePath);
-
-    res.status(200).json({
-      message: 'Bulk upload completed',
-      addedEntries,
-      duplicateEntries,
-    });
-  } catch (error) {
-    console.error('Error adding students:', error);
-
-    // Delete the file in case of an error
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
-
-    res.status(500).json({ error: 'Error adding students', details: error.message });
-  }
-});
-
-//routes for giving ratings 
-
 router.get('/studentinfo/:jntuno',AuthRoute, async (req, res) => {
   const { jntuno } = req.params;
   const query = `SELECT * FROM students WHERE jntuno = ?`;
@@ -284,6 +152,37 @@ router.post('/submitfeedback', AuthRoute, async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+
+//fetching oe subjects
+router.get('/fetchopenelectives/:semesternumber/:branchcode', AuthRoute, async (req, res) => {
+  const { semesternumber, branchcode } = req.params;
+
+  try {
+    // Validate input parameters
+    if (!semesternumber || !branchcode) {
+      return res.status(400).json({ error: 'Semester number and branch code are required' });
+    }
+
+    // Fetch open elective subjects for the given semester and branch
+    const fetchOpenElectivesQuery = `
+      SELECT * FROM subjects
+      WHERE semesternumber = ? AND branchcode = ? AND subjecttype = 'openelective'
+    `;
+    const [openElectives] = await connection.execute(fetchOpenElectivesQuery, [semesternumber, branchcode]);
+
+    if (openElectives.length === 0) {
+      return res.status(404).json({ error: 'No open electives found for this semester and branch' });
+    }
+
+    // Return the open electives subjects
+    return res.status(200).json({ openElectives });
+  } catch (err) {
+    console.error('Error fetching open electives:', err);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+
 
 
 export default router;

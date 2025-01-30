@@ -14,6 +14,26 @@ CREATE TABLE subjects (
     branchcode int NOT NULL
 );
 
+CREATE TABLE subjects (
+    subjectid INT AUTO_INCREMENT UNIQUE,
+    subjectcode VARCHAR(20) NOT NULL,
+    subjectname VARCHAR(100) NOT NULL,
+    semesternumber INT NOT NULL,
+    branchcode INT NOT NULL,
+    PRIMARY KEY (subjectcode, branchcode)
+);
+
+CREATE TABLE subjects (
+    subjectid INT AUTO_INCREMENT UNIQUE,
+    subjectcode VARCHAR(20) NOT NULL,
+    subjectname VARCHAR(100) NOT NULL,
+    semesternumber INT NOT NULL,
+    branchcode INT NOT NULL,
+    subjecttype VARCHAR(20) DEFAULT 'regular',
+    PRIMARY KEY (subjectcode, branchcode)
+);
+
+
 alter table students modify jntuno varchar(255) not null;
 CREATE TABLE courseoutcomes (
     subjectcode varchar(20) NOT NULL,
