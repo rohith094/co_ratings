@@ -76,18 +76,43 @@ router.get('/studentinfo/:jntuno',AuthRoute, async (req, res) => {
   }
 });
 
-router.get('/subjects/:semesternumber/:branchcode',AuthRoute, async (req, res) => {
-  const { semesternumber, branchcode } = req.params;
-  const query = `SELECT * FROM subjects WHERE semesternumber = ? AND branchcode = ?`;
+// router.get('/subjects/:semesternumber/:branchcode',AuthRoute, async (req, res) => {
+//   const { semesternumber, branchcode } = req.params;
+//   const query = `SELECT * FROM subjects WHERE semesternumber = ? AND branchcode = ?`;
+
+//   try {
+//     const [subjects] = await connection.execute(query, [semesternumber, branchcode]);
+//     res.status(200).json(subjects);
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ error: 'An error occurred' });
+//   }
+// });
+
+router.get('/subjects/:semesternumber/:branchcode/:jntuno', AuthRoute, async (req, res) => {
+  const { semesternumber, branchcode, jntuno } = req.params;
+
+  if (!jntuno || jntuno.length < 2) {
+    return res.status(400).json({ error: 'Invalid jntuno format' });
+  }
+
+  // Extract the first two digits of jntuno
+  const yearPrefix = parseInt(jntuno.substring(0, 2), 10);
+  const regulation = yearPrefix < 23 ? 'AR21' : 'AR23';
+
+  const query = `
+    SELECT * FROM subjects 
+    WHERE semesternumber = ? AND branchcode = ? AND regulation = ?`;
 
   try {
-    const [subjects] = await connection.execute(query, [semesternumber, branchcode]);
+    const [subjects] = await connection.execute(query, [semesternumber, branchcode, regulation]);
     res.status(200).json(subjects);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'An error occurred' });
   }
 });
+
 
 router.get('/courseoutcomes/:subjectcode', AuthRoute, async (req, res) => {
   const { subjectcode } = req.params;

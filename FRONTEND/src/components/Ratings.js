@@ -84,7 +84,7 @@ const Ratings = () => {
       const data = response.data;
       data.branchshortcut = branchMapping[data.branchcode] || data.branchcode;
       setStudentInfo(data);
-      fetchSubjects(data.semesternumber, data.branchcode);
+      fetchSubjects(data.semesternumber, data.branchcode, data.jntuno);
       checkRatedSubjects(data.jntuno);
       return data; // Return updated data
     } catch (err) {
@@ -106,11 +106,11 @@ const Ratings = () => {
     }
   };
 
-  const fetchSubjects = async (semesternumber, branchcode) => {
+  const fetchSubjects = async (semesternumber, branchcode,jntuno) => {
     setLoading(true);
     try {
       const token = Cookies.get('studenttoken');
-      const response = await axios.get(`https://co-rating-qn28.onrender.com/student/subjects/${semesternumber}/${branchcode}`, {
+      const response = await axios.get(`https://co-rating-qn28.onrender.com/student/subjects/${semesternumber}/${branchcode}/${jntuno}`, {
         headers: { Authorization: `${token}` },
       });
       setSubjects(response.data);

@@ -292,6 +292,85 @@ router.post('/addsubjects', AdminAuth, upload.single('file'), async (req, res) =
   }
 });
 
+router.put('/subjects/bulkupdate', AdminAuth, upload.single('excelFile'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const filePath = req.file.path;
+
+    // Read the Excel file
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet);
+
+    if (data.length === 0) {
+      fs.unlinkSync(filePath); // Delete file
+      return res.status(400).json({ error: 'Excel file is empty' });
+    }
+
+    let successCount = 0;
+    let errorRecords = [];
+    let duplicates = new Set();
+    let seen = new Set();
+
+    for (const row of data) {
+      const subjectcode = row.subjectcode;
+      const semesternumber = row.semesternumber;
+      const branchcode = row.branchcode;
+      const regulation = row.regulation;
+
+      const uniqueKey = `${subjectcode}-${semesternumber}-${branchcode}`;
+
+      // Check for missing fields
+      if (!subjectcode || !semesternumber || !branchcode || !regulation) {
+        errorRecords.push({ subjectcode, semesternumber, branchcode, message: 'Missing required fields' });
+        continue;
+      }
+
+      // Check for duplicates within the uploaded file
+      if (seen.has(uniqueKey)) {
+        duplicates.add(uniqueKey);
+        continue;
+      }
+      seen.add(uniqueKey);
+
+      try {
+        const query = `
+          UPDATE subjects 
+          SET regulation = ? 
+          WHERE subjectcode = ? AND semesternumber = ? AND branchcode = ?`;
+        const values = [regulation, subjectcode, semesternumber, branchcode];
+
+        const [result] = await connection.execute(query, values);
+
+        if (result.affectedRows > 0) {
+          successCount++;
+        } else {
+          errorRecords.push({ subjectcode, semesternumber, branchcode, message: 'No matching subject found' });
+        }
+      } catch (updateError) {
+        errorRecords.push({ subjectcode, semesternumber, branchcode, message: updateError.message });
+      }
+    }
+
+    fs.unlinkSync(filePath); // Clean up uploaded file
+
+    res.status(200).json({
+      message: 'Bulk update completed',
+      updated: successCount,
+      errors: errorRecords.length,
+      errorDetails: errorRecords,
+      duplicates: Array.from(duplicates)
+    });
+  } catch (error) {
+    console.error('Bulk update error:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+});
+
 //courseoutcomes 
 
 router.post('/addcourseoutcomes', AdminAuth, upload.single('file'), async (req, res) => {
@@ -474,5 +553,71 @@ router.post('/addsubject', async (req, res) => {
 //     res.status(500).json({ error: 'Error adding students', details: error.message });
 //   }
 // });
+
+//bulkupdate students 
+
+
+router.put('/students/bulkupdate', AdminAuth, upload.single('excelFile'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const filePath = req.file.path;
+
+    // Read the Excel file
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet);
+
+    if (data.length === 0) {
+      fs.unlinkSync(filePath); // Delete file
+      return res.status(400).json({ error: 'Excel file is empty' });
+    }
+
+    let successCount = 0;
+    let errorRecords = [];
+
+    for (const row of data) {
+      const jntuno = row.jntuno; // Ensure the column name in Excel matches this
+      const regulation = row.regulation; // Get regulation from Excel
+
+      if (!jntuno || !regulation) {
+        errorRecords.push({ jntuno, message: 'Missing jntuno or regulation' });
+        continue; // Skip invalid rows
+      }
+
+      try {
+        const query = `UPDATE students SET regulation = ? WHERE jntuno = ?`;
+        const values = [regulation, jntuno];
+
+        const [result] = await connection.execute(query, values);
+
+        if (result.affectedRows > 0) {
+          successCount++;
+        } else {
+          errorRecords.push({ jntuno, message: 'No matching student found' });
+        }
+      } catch (updateError) {
+        errorRecords.push({ jntuno, message: updateError.message });
+      }
+    }
+
+    fs.unlinkSync(filePath); // Clean up uploaded file
+
+    res.status(200).json({
+      message: 'Bulk update completed',
+      updated: successCount,
+      errors: errorRecords.length,
+      errorDetails: errorRecords
+    });
+  } catch (error) {
+    console.error('Bulk update error:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+});
+
+
 
 export default router;

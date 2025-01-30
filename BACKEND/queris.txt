@@ -3,7 +3,8 @@ CREATE TABLE students (
     jntuno VARCHAR(20) NOT NULL primary key,
     name VARCHAR(100) NOT NULL,
     semesternumber INT NOT NULL,
-    branchcode int NOT NULL
+    branchcode int NOT NULL,
+    regulation varchar(50) 
 ); 
 
 CREATE TABLE subjects (
@@ -30,6 +31,7 @@ CREATE TABLE subjects (
     semesternumber INT NOT NULL,
     branchcode INT NOT NULL,
     subjecttype VARCHAR(20) DEFAULT 'regular',
+    regulation varchar(20)
     PRIMARY KEY (subjectcode, branchcode)
 );
 
