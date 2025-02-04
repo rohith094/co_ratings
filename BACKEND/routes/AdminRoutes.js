@@ -226,6 +226,73 @@ router.post('/addstudents', AdminAuth, upload.single('file'), async (req, res) =
   }
 });
 
+//oe subjects route 
+router.put('/oesubjects/bulkupdate', AdminAuth, upload.single('excelFile'), async (req, res) => {
+  try {
+      if (!req.file) {
+          return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      const filePath = req.file.path;
+
+      // Read the Excel file
+      const workbook = xlsx.readFile(filePath);
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const data = xlsx.utils.sheet_to_json(sheet);
+
+      if (data.length === 0) {
+          fs.unlinkSync(filePath); // Delete file
+          return res.status(400).json({ error: 'Excel file is empty' });
+      }
+
+      let successCount = 0;
+      let errorRecords = [];
+
+      for (const row of data) {
+          const jntuno = row.jntuno;
+          const oesubjects = row.oesubjects; // Comma-separated subjects
+
+          if (!jntuno || !oesubjects) {
+              errorRecords.push({ jntuno, message: 'Missing required fields' });
+              continue;
+          }
+
+          const subjectsArray = oesubjects.split(',').map(s => s.trim()); // Convert to JSON array
+          const subjectsJson = JSON.stringify(subjectsArray);
+
+          try {
+              // Update the database
+              const query = `UPDATE students SET oesubjects = ? WHERE jntuno = ?`;
+              const values = [subjectsJson, jntuno];
+
+              const [result] = await connection.execute(query, values);
+
+              if (result.affectedRows > 0) {
+                  successCount++;
+              } else {
+                  errorRecords.push({ jntuno, message: 'No matching student found' });
+              }
+          } catch (updateError) {
+              errorRecords.push({ jntuno, message: updateError.message });
+          }
+      }
+
+      fs.unlinkSync(filePath); // Clean up uploaded file
+
+      res.status(200).json({
+          message: 'Bulk update completed',
+          updated: successCount,
+          errors: errorRecords.length,
+          errorDetails: errorRecords
+      });
+
+  } catch (error) {
+      console.error('Bulk update error:', error);
+      res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+});
+
 //subject routes
 
 router.post('/addsubjects', AdminAuth, upload.single('file'), async (req, res) => {

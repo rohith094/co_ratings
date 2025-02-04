@@ -76,19 +76,6 @@ router.get('/studentinfo/:jntuno',AuthRoute, async (req, res) => {
   }
 });
 
-// router.get('/subjects/:semesternumber/:branchcode',AuthRoute, async (req, res) => {
-//   const { semesternumber, branchcode } = req.params;
-//   const query = `SELECT * FROM subjects WHERE semesternumber = ? AND branchcode = ?`;
-
-//   try {
-//     const [subjects] = await connection.execute(query, [semesternumber, branchcode]);
-//     res.status(200).json(subjects);
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ error: 'An error occurred' });
-//   }
-// });
-
 router.get('/subjects/:semesternumber/:branchcode/:jntuno', AuthRoute, async (req, res) => {
   const { semesternumber, branchcode, jntuno } = req.params;
 
@@ -113,6 +100,69 @@ router.get('/subjects/:semesternumber/:branchcode/:jntuno', AuthRoute, async (re
   }
 });
 
+router.get('/oesubjects/:jntuno', AuthRoute, async (req, res) => {
+  const { jntuno } = req.params;
+
+  if (!jntuno || jntuno.length < 2) {
+      return res.status(400).json({ error: 'Invalid jntuno format' });
+  }
+
+  try {
+      // Step 1: Fetch oesubjects JSON array, branchcode, and semesternumber from students table
+      const studentQuery = `SELECT oesubjects, branchcode, semesternumber FROM students WHERE jntuno = ?`;
+      const [studentRows] = await connection.execute(studentQuery, [jntuno]);
+
+      if (studentRows.length === 0) {
+          return res.status(404).json({ error: 'Student not found' });
+      }
+
+      let { oesubjects, branchcode, semesternumber } = studentRows[0];
+
+      if (!oesubjects) {
+          return res.status(200).json({ message: 'No OE subjects found for this student', subjects: [] });
+      }
+
+      let subjectCodes;
+      try {
+          // Ensure oesubjects is an array (MySQL may return it as a string)
+          subjectCodes = typeof oesubjects === 'string' ? JSON.parse(oesubjects) : oesubjects;
+          console.log(subjectCodes);
+      } catch (jsonError) {
+          return res.status(500).json({ 
+              error: `Data format error: Unable to parse OE subjects for student ${jntuno}.`,
+              details: jsonError.message,
+              stored_value: oesubjects
+          });
+      }
+
+      if (!Array.isArray(subjectCodes) || subjectCodes.length === 0) {
+          return res.status(200).json({ message: 'No OE subjects assigned', subjects: [] });
+      }
+
+      // Step 3: Determine regulation based on jntuno
+      const yearPrefix = parseInt(jntuno.substring(0, 2), 10);
+      const regulation = yearPrefix < 23 ? 'AR21' : 'AR23';
+
+      // Step 4: Fetch full subject details from subjects table using subjectcode, branchcode, semesternumber, and regulation
+      const placeholders = subjectCodes.map(() => '?').join(','); // Generate (?, ?, ?) dynamically
+      
+      const subjectQuery = `
+          SELECT * FROM subjects 
+          WHERE subjectcode IN (${placeholders}) 
+          AND branchcode = ? 
+          AND semesternumber = ? 
+          AND regulation = ?
+      `;
+
+      const [subjects] = await connection.execute(subjectQuery, [...subjectCodes, branchcode, semesternumber, regulation]);
+
+      res.status(200).json({ jntuno, subjects });
+
+  } catch (err) {
+      console.error('Error fetching OE subjects:', err);
+      res.status(500).json({ error: 'An error occurred while fetching OE subjects', details: err.message });
+  }
+});
 
 router.get('/courseoutcomes/:subjectcode', AuthRoute, async (req, res) => {
   const { subjectcode } = req.params;

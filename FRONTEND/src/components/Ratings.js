@@ -16,6 +16,7 @@ const Ratings = () => {
   const [courseOutcomes, setCourseOutcomes] = useState({});
   const [finalSubmitEnabled, setFinalSubmitEnabled] = useState(false);
   const [openElectives, setOpenElectives] = useState([]);
+
   const navigate = useNavigate();
 
   const branchMapping = {
@@ -35,10 +36,9 @@ const Ratings = () => {
   }, []);
 
   useEffect(() => {
-    if (subjects.length > 0) {
-      setFinalSubmitEnabled(areAllSubjectsRated());
-    }
-  }, [ratings, subjects, courseOutcomes]);
+    setFinalSubmitEnabled(checkAllSubjectsRated());
+  }, [ratings, submittedSubjects]);
+
 
   const fetchOpenElectives = async (semesternumber, branchcode) => {
     const token = Cookies.get('studenttoken');
@@ -93,7 +93,7 @@ const Ratings = () => {
       setLoading(false);
     }
   };
-  
+
   const checkRatedSubjects = async (jntuno) => {
     try {
       const token = Cookies.get('studenttoken');
@@ -106,7 +106,7 @@ const Ratings = () => {
     }
   };
 
-  const fetchSubjects = async (semesternumber, branchcode,jntuno) => {
+  const fetchSubjects = async (semesternumber, branchcode, jntuno) => {
     setLoading(true);
     try {
       const token = Cookies.get('studenttoken');
@@ -121,20 +121,6 @@ const Ratings = () => {
     }
   };
 
-  // const fetchCourseOutcomes = async (subjectCode) => {
-  //   try {
-  //     const token = Cookies.get('studenttoken');
-  //     const response = await axios.get(`https://co-rating-qn28.onrender.com/student/courseoutcomes/${subjectCode}`, {
-  //       headers: { Authorization: `${token}` },
-  //     });
-  //     setCourseOutcomes((prev) => ({
-  //       ...prev,
-  //       [subjectCode]: response.data,
-  //     }));
-  //   } catch (err) {
-  //     console.error('Error fetching course outcomes:', err);
-  //   }
-  // };
 
   const fetchCourseOutcomes = async (subjectCode) => {
     try {
@@ -142,39 +128,32 @@ const Ratings = () => {
       const response = await axios.get(`https://co-rating-qn28.onrender.com/student/courseoutcomes/${subjectCode}`, {
         headers: { Authorization: `${token}` },
       });
-  
+
       const defaultRatings = response.data.reduce((acc, co) => {
-        acc[co.cocode] = 5; // Default to 4 stars
+        acc[co.cocode] = { coursealignment: 5, courseattainment: 5 }; // Default to 5 stars
         return acc;
       }, {});
-  
+
       setCourseOutcomes((prev) => ({ ...prev, [subjectCode]: response.data }));
       setRatings((prev) => ({ ...prev, [subjectCode]: defaultRatings }));
     } catch (err) {
       console.error('Error fetching course outcomes:', err);
     }
   };
-  
-  // const handleRatingChange = (subjectCode, cocode, value) => {
-  //   setRatings((prev) => ({
-  //     ...prev,
-  //     [subjectCode]: {
-  //       ...(prev[subjectCode] || {}),
-  //       [cocode]: value,
-  //     },
-  //   }));
-  // };
 
-  const handleRatingChange = (subjectCode, cocode, value) => {
+  const handleRatingChange = (subjectCode, cocode, star, ratingType) => {
     setRatings((prev) => ({
       ...prev,
       [subjectCode]: {
-        ...(prev[subjectCode] || {}),
-        [cocode]: value, // Update selected rating
+        ...prev[subjectCode],
+        [cocode]: {
+          ...(prev[subjectCode]?.[cocode] || {}),
+          [ratingType]: star,
+        },
       },
     }));
   };
-  
+
   const areAllCOsRated = (subjectCode) => {
     const subjectRatings = ratings[subjectCode] || {};
     return (
@@ -183,58 +162,57 @@ const Ratings = () => {
     );
   };
 
-  const areAllSubjectsRated = () => {
+  const checkAllSubjectsRated = () => {
     return subjects.every((subject) => {
-      const subjectRatings = ratings[subject.subjectcode] || {};
-      // Check if all COs for the subject are rated
-      return (
-        courseOutcomes[subject.subjectcode]?.length === Object.keys(subjectRatings).length &&
-        Object.values(subjectRatings).every((rating) => rating > 0)
-      );
+      return ['coursealignment', 'courseattainment'].every((ratingType) => {
+        return submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`);
+      });
     });
   };
 
-  const handleSubmit = async (subjectCode) => {
+
+  const handleSubmit = async (subjectCode, ratingType) => {
     try {
       const token = Cookies.get('studenttoken');
       const { jntuno } = JSON.parse(atob(token.split('.')[1]));
+
       const subjectRatings = Object.entries(ratings[subjectCode] || {}).map(([cocode, rating]) => ({
         cocode,
-        rating,
-      }));
+        rating: rating[ratingType],
+        rating_type: ratingType,
+      })).filter(r => r.rating);
 
       await axios.post(
         'https://co-rating-qn28.onrender.com/ratings/addrating',
         { jntuno, subjectcode: subjectCode, ratings: subjectRatings },
-        {
-          headers: {
-            Authorization: `${token}`,
-          },
-        }
+        { headers: { Authorization: `${token}` } }
       );
 
-      setSubmittedSubjects((prev) => [...prev, subjectCode]);
-      setOpenAccordions((prev) => prev.filter((code) => code !== subjectCode)); // Close the accordion
-      toast.success('Ratings submitted successfully!');
+      setSubmittedSubjects((prev) => [...prev, `${subjectCode}-${ratingType}`]);
+
+      // Close only the specific accordion for this subjectCode and ratingType
+      setOpenAccordions((prev) => prev.filter((item) => item !== `${subjectCode}-${ratingType}`));
+
+      toast.success(`${ratingType} ratings submitted successfully!`);
     } catch (err) {
       console.error('Error submitting ratings:', err);
-      toast.error('Error submitting ratings');
+      toast.error(`Error submitting ${ratingType} ratings`);
     }
   };
 
-  const toggleAccordion = async (subjectCode) => {
-    if (!submittedSubjects.includes(subjectCode)) {
+
+  const toggleAccordion = async (subjectCode, ratingType) => {
+    const key = `${subjectCode}-${ratingType}`;
+
+    if (!submittedSubjects.includes(key)) {
       if (!courseOutcomes[subjectCode]) {
         await fetchCourseOutcomes(subjectCode);
       }
       setOpenAccordions((prev) =>
-        prev.includes(subjectCode)
-          ? prev.filter((code) => code !== subjectCode)
-          : [...prev, subjectCode]
+        prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]
       );
     }
   };
-
 
   const fetchFeedbackStatus = async () => {
     try {
@@ -245,7 +223,7 @@ const Ratings = () => {
         { jntuno },
         { headers: { Authorization: `${token}` } }
       );
-  
+
       if (response.data.feedback_submitted) {
         navigate('/feedbacksubmitted');
       } else {
@@ -257,7 +235,7 @@ const Ratings = () => {
       toast.error('Error checking feedback status');
     }
   };
-  
+
   return (
     <div className="min-h-screen bg-gray-100">
       <nav className="bg-blue-800 text-white p-4 flex justify-between items-center">
@@ -278,158 +256,153 @@ const Ratings = () => {
       </nav>
 
       <main className="p-6">
-      {loading ? (
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-blue-500"></div>
-        </div>
-      ) : (
-        <>
-          {/* Open Electives Section */}
-    
-          {/* Additional subjects section (Second part of the combined code) */}
-          {subjects.map((subject) => (
-            <div key={subject.subjectcode} className="mb-6">
-              <div
-                className={`bg-gray-200 p-4 rounded-lg flex justify-between items-center cursor-pointer ${submittedSubjects.includes(subject.subjectcode) ? 'bg-green-300' : ''}`}
-                onClick={() => toggleAccordion(subject.subjectcode)}
-              >
-                <span>{subject.subjectname}-{subject.subjectcode}</span>
-                <span className="flex items-center">
-                  {submittedSubjects.includes(subject.subjectcode) ? (
-                    <>
-                      <FaCheckCircle className="text-green-500 mr-2" />
-                      Submitted
-                    </>
-                  ) : (
-                    openAccordions.includes(subject.subjectcode) ? (
-                      <FaChevronUp className="text-blue-500 ml-2" />
-                    ) : (
-                      <FaChevronDown className="text-blue-500 ml-2" />
-                    )
-                  )}
-                </span>
-              </div>
-    
-              {openAccordions.includes(subject.subjectcode) && (
-                <div className="p-4 bg-white shadow-lg rounded-lg mt-4">
-                  {courseOutcomes[subject.subjectcode]?.map(({ cocode, coname }) => (
-                    <div key={cocode} className="mb-4 flex justify-between items-center">
-                      <div>
-                        <p className="font-semibold">{`CO Code: ${cocode}`}</p>
-                        <p className="text-sm text-gray-600">{`CO Name: ${coname}`}</p>
-                      </div>
-                      <div className="flex items-center space-x-1">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <button
-                            key={star}
-                            className={`p-2 text-2xl ${ratings[subject.subjectcode]?.[cocode] >= star
-                              ? 'text-yellow-400'
-                              : 'text-gray-300'
-                              }`}
-                            onClick={() => handleRatingChange(subject.subjectcode, cocode, star)}
-                          >
-                            {ratings[subject.subjectcode]?.[cocode] >= star ? <FaStar /> : <FaRegStar />}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                  <button
-                    className={`mt-4 py-2 px-4 rounded ${submittedSubjects.includes(subject.subjectcode) || !areAllCOsRated(subject.subjectcode)
-                      ? 'bg-gray-400'
-                      : 'bg-green-500 hover:bg-green-600'
-                      } text-white cursor-pointer`}
-                    onClick={() => handleSubmit(subject.subjectcode)}
-                    disabled={submittedSubjects.includes(subject.subjectcode) || !areAllCOsRated(subject.subjectcode)}
-                  >
-                    {submittedSubjects.includes(subject.subjectcode) ? (
-                      <>
-                        <FaCheckCircle className="inline mr-2" />
-                        Submitted
-                      </>
-                    ) : (
-                      'Submit Ratings'
-                    )}
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
+        {loading ? (
+          <div className="flex justify-center items-center h-64">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-blue-500"></div>
+          </div>
+        ) : (
+          <>
+            {/* Open Electives Section */}
 
-          {openElectives.length > 0 && (
-            <div className="mb-6">
-              <h2 className="text-xl font-semibold mb-2">OPEN ELECTIVES</h2>
-              <p className="text-sm text-red-600 mb-4">
-                Note: Only give ratings to the subject which you opted
-              </p>
-              {openElectives.map((subject) => (
-                <div key={subject.subjectcode} className="mb-6">
-                  <div
-                    className={`bg-gray-200 p-4 rounded-lg flex justify-between items-center cursor-pointer ${submittedSubjects.includes(subject.subjectcode) ? 'bg-green-300' : ''}`}
-                    onClick={() => toggleAccordion(subject.subjectcode)}
-                  >
-                    <span>{subject.subjectname}-{subject.subjectcode}</span>
-                    <span className="flex items-center">
-                      {submittedSubjects.includes(subject.subjectcode) ? (
-                        <>
-                          <FaCheckCircle className="text-green-500 mr-2" />
-                          Submitted
-                        </>
-                      ) : (
-                        openAccordions.includes(subject.subjectcode) ? (
-                          <FaChevronUp className="text-blue-500 ml-2" />
+            {['coursealignment', 'courseattainment'].map((ratingType) => (
+              <div key={ratingType}>
+                <h2 className="text-xl font-bold mb-4 capitalize">{ratingType.replace('course', 'Course ')}</h2>
+                {subjects.map((subject) => (
+                  <div key={`${subject.subjectcode}-${ratingType}`} className="mb-6">
+                    <div
+                      className={`bg-gray-200 p-4 rounded-lg flex justify-between items-center cursor-pointer ${submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`) ? 'bg-green-300' : ''}`}
+                      onClick={() => toggleAccordion(subject.subjectcode, ratingType)}
+                    >
+                      <span>{subject.subjectname}-{subject.subjectcode}</span>
+                      <span className="flex items-center">
+                        {submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`) ? (
+                          <>
+                            <FaCheckCircle className="text-green-500 mr-2" /> Submitted
+                          </>
                         ) : (
-                          <FaChevronDown className="text-blue-500 ml-2" />
-                        )
-                      )}
-                    </span>
-                  </div>
-    
-                  {openAccordions.includes(subject.subjectcode) && (
-                    <div className="p-4 bg-white shadow-lg rounded-lg mt-4">
-                      {courseOutcomes[subject.subjectcode]?.map(({ cocode, coname }) => (
-                        <div key={cocode} className="mb-4 flex justify-between items-center">
-                          <div>
-                            <p className="font-semibold">{`CO Code: ${cocode}`}</p>
-                            <p className="text-sm text-gray-600">{`CO Name: ${coname}`}</p>
-                          </div>
-                          <div className="flex items-center space-x-1">
-                            {[1, 2, 3, 4, 5].map((star) => (
-                              <button
-                                key={star}
-                                className={`p-2 text-2xl ${ratings[subject.subjectcode]?.[cocode] >= star
-                                  ? 'text-yellow-400'
-                                  : 'text-gray-300'
-                                  }`}
-                                onClick={() => handleRatingChange(subject.subjectcode, cocode, star)}
-                              >
-                                {ratings[subject.subjectcode]?.[cocode] >= star ? <FaStar /> : <FaRegStar />}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                      <button
-                        className={`mt-4 py-2 px-4 rounded ${submittedSubjects.includes(subject.subjectcode) || !areAllCOsRated(subject.subjectcode)
-                          ? 'bg-gray-400'
-                          : 'bg-blue-600 hover:bg-blue-700'
-                          } text-white`}
-                        onClick={() => handleSubmit(subject.subjectcode)}
-                        disabled={submittedSubjects.includes(subject.subjectcode) || !areAllCOsRated(subject.subjectcode)}
-                      >
-                        Submit Ratings
-                      </button>
+                          openAccordions.includes(`${subject.subjectcode}-${ratingType}`) ? (
+                            <FaChevronUp className="text-blue-500 ml-2" />
+                          ) : (
+                            <FaChevronDown className="text-blue-500 ml-2" />
+                          )
+                        )}
+                      </span>
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-    </main>
-    
-      
+                    {openAccordions.includes(`${subject.subjectcode}-${ratingType}`) && (
+                      <div className="p-4 bg-white shadow-lg rounded-lg mt-4">
+
+                        {courseOutcomes[subject.subjectcode]?.map(({ cocode, coname }) => (
+                          <div key={cocode} className="mb-4">
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <p className="font-semibold">CO Code: {cocode}</p>
+                                <p className="text-sm text-gray-600">CO Name: {coname}</p>
+                              </div>
+                              <div className="flex space-x-2">
+
+                                {/* Star buttons with numbers inside */}
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                  <button
+                                    key={star}
+                                    className={`relative p-2 text-2xl flex flex-col items-center ${ratings[subject.subjectcode]?.[cocode]?.[ratingType] >= star ? 'text-yellow-400' : 'text-gray-300'}`}
+                                    onClick={() => handleRatingChange(subject.subjectcode, cocode, star, ratingType)}
+                                  >
+                                    {ratings[subject.subjectcode]?.[cocode]?.[ratingType] >= star ? <FaStar /> : <FaRegStar />}
+                                    <span className="absolute bottom-0 text-xs font-bold text-black">{star}</span>
+                                  </button>
+                                ))}
+
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        <button
+                          className="mt-4 py-2 px-4 rounded bg-green-500 hover:bg-green-600 text-white cursor-pointer"
+                          onClick={() => handleSubmit(subject.subjectcode, ratingType)}
+                        >
+                          Submit Ratings
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+
+            {openElectives.length > 0 && (
+              <div className="mb-6">
+                <h2 className="text-xl font-semibold mb-2">OPEN ELECTIVES</h2>
+                <p className="text-sm text-red-600 mb-4">
+                  Note: Only give ratings to the subject which you opted
+                </p>
+                {openElectives.map((subject) => (
+                  <div key={subject.subjectcode} className="mb-6">
+                    <div
+                      className={`bg-gray-200 p-4 rounded-lg flex justify-between items-center cursor-pointer ${submittedSubjects.includes(subject.subjectcode) ? 'bg-green-300' : ''}`}
+                      onClick={() => toggleAccordion(subject.subjectcode)}
+                    >
+                      <span>{subject.subjectname}-{subject.subjectcode}</span>
+                      <span className="flex items-center">
+                        {submittedSubjects.includes(subject.subjectcode) ? (
+                          <>
+                            <FaCheckCircle className="text-green-500 mr-2" />
+                            Submitted
+                          </>
+                        ) : (
+                          openAccordions.includes(subject.subjectcode) ? (
+                            <FaChevronUp className="text-blue-500 ml-2" />
+                          ) : (
+                            <FaChevronDown className="text-blue-500 ml-2" />
+                          )
+                        )}
+                      </span>
+                    </div>
+
+                    {openAccordions.includes(subject.subjectcode) && (
+                      <div className="p-4 bg-white shadow-lg rounded-lg mt-4">
+                        {courseOutcomes[subject.subjectcode]?.map(({ cocode, coname }) => (
+                          <div key={cocode} className="mb-4 flex justify-between items-center">
+                            <div>
+                              <p className="font-semibold">{`CO Code: ${cocode}`}</p>
+                              <p className="text-sm text-gray-600">{`CO Name: ${coname}`}</p>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <button
+                                  key={star}
+                                  className={`p-2 text-2xl ${ratings[subject.subjectcode]?.[cocode] >= star
+                                    ? 'text-yellow-400'
+                                    : 'text-gray-300'
+                                    }`}
+                                  onClick={() => handleRatingChange(subject.subjectcode, cocode, star)}
+                                >
+                                  {ratings[subject.subjectcode]?.[cocode] >= star ? <FaStar /> : <FaRegStar />}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                        <button
+                          className={`mt-4 py-2 px-4 rounded ${submittedSubjects.includes(subject.subjectcode) || !areAllCOsRated(subject.subjectcode)
+                            ? 'bg-gray-400'
+                            : 'bg-blue-600 hover:bg-blue-700'
+                            } text-white`}
+                          onClick={() => handleSubmit(subject.subjectcode)}
+                          disabled={submittedSubjects.includes(subject.subjectcode) || !areAllCOsRated(subject.subjectcode)}
+                        >
+                          Submit Ratings
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </main>
+
+
     </div>
   );
 };

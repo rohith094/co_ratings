@@ -8,14 +8,32 @@ const Router = express.Router();
 dotenv.config();
 
 
-// Router.post('/addrating', async (req, res) => {
+// Router.post('/addrating',AuthRoute, async (req, res) => {
 //   try {
 //     const { jntuno, subjectcode, ratings } = req.body;
 
+//     // Validate input data
 //     if (!jntuno || !subjectcode || !ratings || !Array.isArray(ratings)) {
 //       return res.status(400).json({ error: 'Invalid input data' });
 //     }
 
+//     // Check if jntuno exists in the students table
+//     const studentQuery = `SELECT * FROM students WHERE jntuno = ?`;
+//     const [studentResult] = await connection.query(studentQuery, [jntuno]);
+
+//     if (studentResult.length === 0) {
+//       return res.status(400).json({ error: `Invalid jntuno: ${jntuno}` });
+//     }
+
+//     // Check if subjectcode exists in the subjects table
+//     const subjectQuery = `SELECT * FROM subjects WHERE subjectcode = ?`;
+//     const [subjectResult] = await connection.query(subjectQuery, [subjectcode]);
+
+//     if (subjectResult.length === 0) {
+//       return res.status(400).json({ error: `Invalid subjectcode: ${subjectcode}` });
+//     }
+
+//     // Process ratings
 //     for (const rating of ratings) {
 //       const { cocode, rating: ratingValue } = rating;
 
@@ -48,16 +66,17 @@ dotenv.config();
 //   }
 // });
 
-Router.post('/addrating',AuthRoute, async (req, res) => {
+
+//checking for rated subjects before submitting 
+
+Router.post('/addrating', AuthRoute, async (req, res) => {
   try {
     const { jntuno, subjectcode, ratings } = req.body;
 
-    // Validate input data
     if (!jntuno || !subjectcode || !ratings || !Array.isArray(ratings)) {
       return res.status(400).json({ error: 'Invalid input data' });
     }
 
-    // Check if jntuno exists in the students table
     const studentQuery = `SELECT * FROM students WHERE jntuno = ?`;
     const [studentResult] = await connection.query(studentQuery, [jntuno]);
 
@@ -65,7 +84,6 @@ Router.post('/addrating',AuthRoute, async (req, res) => {
       return res.status(400).json({ error: `Invalid jntuno: ${jntuno}` });
     }
 
-    // Check if subjectcode exists in the subjects table
     const subjectQuery = `SELECT * FROM subjects WHERE subjectcode = ?`;
     const [subjectResult] = await connection.query(subjectQuery, [subjectcode]);
 
@@ -73,30 +91,30 @@ Router.post('/addrating',AuthRoute, async (req, res) => {
       return res.status(400).json({ error: `Invalid subjectcode: ${subjectcode}` });
     }
 
-    // Process ratings
     for (const rating of ratings) {
-      const { cocode, rating: ratingValue } = rating;
+      const { cocode, rating_type, rating: ratingValue } = rating;
 
-      // Check if the rating already exists
+      if (!['coursealignment', 'courseattainment'].includes(rating_type)) {
+        return res.status(400).json({ error: `Invalid rating_type: ${rating_type}` });
+      }
+
       const checkQuery = `
-        SELECT * 
-        FROM ratings 
-        WHERE jntuno = ? AND subjectcode = ? AND cocode = ?
+        SELECT * FROM ratings 
+        WHERE jntuno = ? AND subjectcode = ? AND cocode = ? AND rating_type = ?
       `;
-      const [existingRatings] = await connection.query(checkQuery, [jntuno, subjectcode, cocode]);
+      const [existingRatings] = await connection.query(checkQuery, [jntuno, subjectcode, cocode, rating_type]);
 
       if (existingRatings.length > 0) {
         return res.status(400).json({
-          message: `You have already submitted a rating for subjectcode: ${subjectcode}, cocode: ${cocode}.`,
+          message: `You have already submitted a ${rating_type} rating for subjectcode: ${subjectcode}, cocode: ${cocode}.`,
         });
       }
 
-      // Insert the new rating if it doesn't exist
       const insertQuery = `
-        INSERT INTO ratings (jntuno, subjectcode, cocode, rating) 
-        VALUES (?, ?, ?, ?)
+        INSERT INTO ratings (jntuno, subjectcode, cocode, rating_type, rating) 
+        VALUES (?, ?, ?, ?, ?)
       `;
-      await connection.query(insertQuery, [jntuno, subjectcode, cocode, ratingValue]);
+      await connection.query(insertQuery, [jntuno, subjectcode, cocode, rating_type, ratingValue]);
     }
 
     res.status(200).json({ message: 'Ratings added successfully' });
@@ -105,7 +123,8 @@ Router.post('/addrating',AuthRoute, async (req, res) => {
     res.status(500).json({ error: 'Failed to add ratings', details: err.message });
   }
 });
-//checking for rated subjects before submitting 
+
+
 Router.get('/checkratedsubjects/:jntuno', async (req, res) => {
   const { jntuno } = req.params;
 
