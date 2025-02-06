@@ -15,8 +15,11 @@ const Ratings = () => {
   const [openAccordions, setOpenAccordions] = useState([]);
   const [courseOutcomes, setCourseOutcomes] = useState({});
   const [finalSubmitEnabled, setFinalSubmitEnabled] = useState(false);
-  const [openElectives, setOpenElectives] = useState([]);
-
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [electives, setElectives] = useState({
+    oesubjects: [],
+    professionalelectives: [],
+  });
   const navigate = useNavigate();
 
   const branchMapping = {
@@ -37,24 +40,8 @@ const Ratings = () => {
 
   useEffect(() => {
     setFinalSubmitEnabled(checkAllSubjectsRated());
-  }, [ratings, submittedSubjects]);
+  }, [ratings, submittedSubjects, electives]);
 
-
-  const fetchOpenElectives = async (semesternumber, branchcode) => {
-    const token = Cookies.get('studenttoken');
-    // const { semesternumber, branchcode } = studentInfo;
-    try {
-      const response = await axios.get(
-        `https://co-rating-qn28.onrender.com/student/fetchopenelectives/${semesternumber}/${branchcode}`,
-        {
-          headers: { Authorization: `${token}` },
-        }
-      );
-      setOpenElectives(response.data.openElectives || []);
-    } catch (err) {
-      console.error('Error fetching open electives:', err);
-    }
-  };
 
   const handleFinalSubmit = async () => {
     try {
@@ -163,15 +150,29 @@ const Ratings = () => {
   };
 
   const checkAllSubjectsRated = () => {
-    return subjects.every((subject) => {
-      return ['coursealignment', 'courseattainment'].every((ratingType) => {
-        return submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`);
-      });
-    });
+    const allSubjectsRated = subjects.every((subject) =>
+      ['coursealignment', 'courseattainment'].every((ratingType) =>
+        submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`)
+      )
+    );
+
+    const allOEsRated = electives.oesubjects.every((oe) =>
+      ['coursealignment', 'courseattainment'].every((ratingType) =>
+        submittedSubjects.includes(`${oe.subjectcode}-${ratingType}`)
+      )
+    );
+
+    const allPEsRated = electives.professionalelectives.every((pe) =>
+      ['coursealignment', 'courseattainment'].every((ratingType) =>
+        submittedSubjects.includes(`${pe.subjectcode}-${ratingType}`)
+      )
+    );
+
+    return allSubjectsRated && allOEsRated && allPEsRated;
   };
 
-
   const handleSubmit = async (subjectCode, ratingType) => {
+    setIsSubmitting(true); // Start loading
     try {
       const token = Cookies.get('studenttoken');
       const { jntuno } = JSON.parse(atob(token.split('.')[1]));
@@ -197,9 +198,10 @@ const Ratings = () => {
     } catch (err) {
       console.error('Error submitting ratings:', err);
       toast.error(`Error submitting ${ratingType} ratings`);
+    } finally {
+      setIsSubmitting(false); // Stop loading
     }
   };
-
 
   const toggleAccordion = async (subjectCode, ratingType) => {
     const key = `${subjectCode}-${ratingType}`;
@@ -228,13 +230,36 @@ const Ratings = () => {
         navigate('/feedbacksubmitted');
       } else {
         const studentData = await fetchStudentInfo(); // Ensure studentInfo updates
-        fetchOpenElectives(studentData.semesternumber, studentData.branchcode); // Now fetch open electives
+        fetchElectives(studentData.jntuno); // Now fetch open electives
       }
     } catch (error) {
       console.error('Error checking feedback status:', error);
       toast.error('Error checking feedback status');
     }
   };
+
+  const fetchElectives = async (jntuno) => {
+    try {
+      const token = Cookies.get('studenttoken');
+
+      // Fetch Elective Subjects (OE and PE) from the backend
+      const electivesResponse = await axios.get(
+        `https://co-rating-qn28.onrender.com/student/electivesubjects/${jntuno}`,
+        { headers: { Authorization: `${token}` } }
+      );
+
+      // Update the state with the fetched data
+      setElectives({
+        oesubjects: electivesResponse.data.oesubjects || [],
+        professionalelectives: electivesResponse.data.professionalelectives || [],
+      });
+
+    } catch (error) {
+      console.error('Error fetching electives:', error);
+      toast.error('Error fetching electives');
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -254,7 +279,6 @@ const Ratings = () => {
           </button>
         </div>
       </nav>
-
       <main className="p-6">
         {loading ? (
           <div className="flex justify-center items-center h-64">
@@ -304,7 +328,7 @@ const Ratings = () => {
                                 {[1, 2, 3, 4, 5].map((star) => (
                                   <button
                                     key={star}
-                                    className={`relative p-2 text-2xl flex flex-col items-center ${ratings[subject.subjectcode]?.[cocode]?.[ratingType] >= star ? 'text-yellow-400' : 'text-gray-300'}`}
+                                    className={`relative p-2 cursor-pointer text-2xl flex flex-col items-center ${ratings[subject.subjectcode]?.[cocode]?.[ratingType] >= star ? 'text-yellow-400' : 'text-gray-300'}`}
                                     onClick={() => handleRatingChange(subject.subjectcode, cocode, star, ratingType)}
                                   >
                                     {ratings[subject.subjectcode]?.[cocode]?.[ratingType] >= star ? <FaStar /> : <FaRegStar />}
@@ -317,11 +341,41 @@ const Ratings = () => {
                           </div>
                         ))}
                         <button
-                          className="mt-4 py-2 px-4 rounded bg-green-500 hover:bg-green-600 text-white cursor-pointer"
+                          className={`mt-4 py-2 px-4 rounded bg-green-500 hover:bg-green-600 text-white cursor-pointer flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-75 cursor-not-allowed' : ''
+                            }`}
                           onClick={() => handleSubmit(subject.subjectcode, ratingType)}
+                          disabled={isSubmitting}
                         >
-                          Submit Ratings
+                          {isSubmitting ? (
+                            <>
+                              <svg
+                                className="animate-spin h-5 w-5 text-white"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                xmlns="http://www.w3.org/2000/svg"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                ></circle>
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8v8H4z"
+                                ></path>
+                              </svg>
+                              Submitting...
+                            </>
+                          ) : (
+                            'Submit Ratings'
+                          )}
                         </button>
+
+
                       </div>
                     )}
                   </div>
@@ -329,75 +383,204 @@ const Ratings = () => {
               </div>
             ))}
 
-            {openElectives.length > 0 && (
-              <div className="mb-6">
-                <h2 className="text-xl font-semibold mb-2">OPEN ELECTIVES</h2>
-                <p className="text-sm text-red-600 mb-4">
-                  Note: Only give ratings to the subject which you opted
-                </p>
-                {openElectives.map((subject) => (
-                  <div key={subject.subjectcode} className="mb-6">
-                    <div
-                      className={`bg-gray-200 p-4 rounded-lg flex justify-between items-center cursor-pointer ${submittedSubjects.includes(subject.subjectcode) ? 'bg-green-300' : ''}`}
-                      onClick={() => toggleAccordion(subject.subjectcode)}
-                    >
-                      <span>{subject.subjectname}-{subject.subjectcode}</span>
-                      <span className="flex items-center">
-                        {submittedSubjects.includes(subject.subjectcode) ? (
-                          <>
-                            <FaCheckCircle className="text-green-500 mr-2" />
-                            Submitted
-                          </>
-                        ) : (
-                          openAccordions.includes(subject.subjectcode) ? (
-                            <FaChevronUp className="text-blue-500 ml-2" />
-                          ) : (
-                            <FaChevronDown className="text-blue-500 ml-2" />
-                          )
-                        )}
-                      </span>
-                    </div>
 
-                    {openAccordions.includes(subject.subjectcode) && (
-                      <div className="p-4 bg-white shadow-lg rounded-lg mt-4">
-                        {courseOutcomes[subject.subjectcode]?.map(({ cocode, coname }) => (
-                          <div key={cocode} className="mb-4 flex justify-between items-center">
-                            <div>
-                              <p className="font-semibold">{`CO Code: ${cocode}`}</p>
-                              <p className="text-sm text-gray-600">{`CO Name: ${coname}`}</p>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                              {[1, 2, 3, 4, 5].map((star) => (
-                                <button
-                                  key={star}
-                                  className={`p-2 text-2xl ${ratings[subject.subjectcode]?.[cocode] >= star
-                                    ? 'text-yellow-400'
-                                    : 'text-gray-300'
-                                    }`}
-                                  onClick={() => handleRatingChange(subject.subjectcode, cocode, star)}
-                                >
-                                  {ratings[subject.subjectcode]?.[cocode] >= star ? <FaStar /> : <FaRegStar />}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                        <button
-                          className={`mt-4 py-2 px-4 rounded ${submittedSubjects.includes(subject.subjectcode) || !areAllCOsRated(subject.subjectcode)
-                            ? 'bg-gray-400'
-                            : 'bg-blue-600 hover:bg-blue-700'
-                            } text-white`}
-                          onClick={() => handleSubmit(subject.subjectcode)}
-                          disabled={submittedSubjects.includes(subject.subjectcode) || !areAllCOsRated(subject.subjectcode)}
+            {['coursealignment', 'courseattainment'].map((ratingType) => (
+              <div key={ratingType}>
+                <h2 className="text-xl font-bold mb-4 capitalize">{ratingType.replace('course', 'Course ')}</h2>
+
+                {/* Professional Electives */}
+                {electives.professionalelectives.length > 0 && (
+                  <div className="mb-6 border-l-4 border-blue-500 bg-blue-100 p-4 rounded-lg">
+                    <h3 className="text-lg font-semibold mb-2 text-blue-800">Professional Electives</h3>
+                    {electives.professionalelectives.map((subject) => (
+                      <div key={`${subject.subjectcode}-${ratingType}`} className="mb-6">
+                        <div
+                          className={`bg-gray-200 p-4 rounded-lg flex justify-between items-center cursor-pointer ${submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`) ? 'bg-green-300' : ''
+                            }`}
+                          onClick={() => toggleAccordion(subject.subjectcode, ratingType)}
                         >
-                          Submit Ratings
-                        </button>
+                          <span>{subject.subjectname} - {subject.subjectcode}</span>
+                          <span className="flex items-center">
+                            {submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`) ? (
+                              <>
+                                <FaCheckCircle className="text-green-500 mr-2" /> Submitted
+                              </>
+                            ) : (
+                              openAccordions.includes(`${subject.subjectcode}-${ratingType}`) ? (
+                                <FaChevronUp className="text-blue-500 ml-2" />
+                              ) : (
+                                <FaChevronDown className="text-blue-500 ml-2" />
+                              )
+                            )}
+                          </span>
+                        </div>
+
+                        {openAccordions.includes(`${subject.subjectcode}-${ratingType}`) && (
+                          <div className="p-4 bg-white shadow-lg rounded-lg mt-4">
+                            {courseOutcomes[subject.subjectcode]?.map(({ cocode, coname }) => (
+                              <div key={cocode} className="mb-4">
+                                <div className="flex justify-between items-center">
+                                  <div>
+                                    <p className="font-semibold">CO Code: {cocode}</p>
+                                    <p className="text-sm text-gray-600">CO Name: {coname}</p>
+                                  </div>
+                                  <div className="flex space-x-2">
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                      <button
+                                        key={star}
+                                        className={`relative p-2 text-2xl cursor-pointer flex flex-col items-center ${ratings[subject.subjectcode]?.[cocode]?.[ratingType] >= star ? 'text-yellow-400' : 'text-gray-300'
+                                          }`}
+                                        onClick={() => handleRatingChange(subject.subjectcode, cocode, star, ratingType)}
+                                      >
+                                        {ratings[subject.subjectcode]?.[cocode]?.[ratingType] >= star ? <FaStar /> : <FaRegStar />}
+                                        <span className="absolute bottom-0 text-xs font-bold text-black">{star}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            <button
+                              className={`mt-4 py-2 px-4 rounded bg-green-500 hover:bg-green-600 text-white cursor-pointer flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-75 cursor-not-allowed' : ''
+                                }`}
+                              onClick={() => handleSubmit(subject.subjectcode, ratingType)}
+                              disabled={isSubmitting}
+                            >
+                              {isSubmitting ? (
+                                <>
+                                  <svg
+                                    className="animate-spin h-5 w-5 text-white"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                  >
+                                    <circle
+                                      className="opacity-25"
+                                      cx="12"
+                                      cy="12"
+                                      r="10"
+                                      stroke="currentColor"
+                                      strokeWidth="4"
+                                    ></circle>
+                                    <path
+                                      className="opacity-75"
+                                      fill="currentColor"
+                                      d="M4 12a8 8 0 018-8v8H4z"
+                                    ></path>
+                                  </svg>
+                                  Submitting...
+                                </>
+                              ) : (
+                                'Submit Ratings'
+                              )}
+                            </button>
+
+
+
+                          </div>
+                        )}
                       </div>
-                    )}
+                    ))}
                   </div>
-                ))}
+                )}
+
+                {/* Open Electives */}
+                {electives.oesubjects.length > 0 && (
+                  <div className="mb-6 border-l-4 border-purple-500 bg-purple-100 p-4 rounded-lg">
+                    <h3 className="text-lg font-semibold mb-2 text-purple-800">Open Electives</h3>
+                    {electives.oesubjects.map((subject) => (
+                      <div key={`${subject.subjectcode}-${ratingType}`} className="mb-6">
+                        <div
+                          className={`bg-gray-200 p-4 rounded-lg flex justify-between items-center cursor-pointer ${submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`) ? 'bg-green-300' : ''
+                            }`}
+                          onClick={() => toggleAccordion(subject.subjectcode, ratingType)}
+                        >
+                          <span>{subject.subjectname} - {subject.subjectcode}</span>
+                          <span className="flex items-center">
+                            {submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`) ? (
+                              <>
+                                <FaCheckCircle className="text-green-500 mr-2" /> Submitted
+                              </>
+                            ) : (
+                              openAccordions.includes(`${subject.subjectcode}-${ratingType}`) ? (
+                                <FaChevronUp className="text-blue-500 ml-2" />
+                              ) : (
+                                <FaChevronDown className="text-blue-500 ml-2" />
+                              )
+                            )}
+                          </span>
+                        </div>
+
+                        {openAccordions.includes(`${subject.subjectcode}-${ratingType}`) && (
+                          <div className="p-4 bg-white shadow-lg rounded-lg mt-4">
+                            {courseOutcomes[subject.subjectcode]?.map(({ cocode, coname }) => (
+                              <div key={cocode} className="mb-4">
+                                <div className="flex justify-between items-center">
+                                  <div>
+                                    <p className="font-semibold">CO Code: {cocode}</p>
+                                    <p className="text-sm text-gray-600">CO Name: {coname}</p>
+                                  </div>
+                                  <div className="flex space-x-2">
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                      <button
+                                        key={star}
+                                        className={`relative p-2 text-2xl cursor-pointer flex flex-col items-center ${ratings[subject.subjectcode]?.[cocode]?.[ratingType] >= star ? 'text-yellow-400' : 'text-gray-300'
+                                          }`}
+                                        onClick={() => handleRatingChange(subject.subjectcode, cocode, star, ratingType)}
+                                      >
+                                        {ratings[subject.subjectcode]?.[cocode]?.[ratingType] >= star ? <FaStar /> : <FaRegStar />}
+                                        <span className="absolute bottom-0 text-xs font-bold text-black">{star}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            <button
+                              className={`mt-4 py-2 px-4 rounded bg-green-500 hover:bg-green-600 text-white cursor-pointer flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-75 cursor-not-allowed' : ''
+                                }`}
+                              onClick={() => handleSubmit(subject.subjectcode, ratingType)}
+                              disabled={isSubmitting}
+                            >
+                              {isSubmitting ? (
+                                <>
+                                  <svg
+                                    className="animate-spin h-5 w-5 text-white"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                  >
+                                    <circle
+                                      className="opacity-25"
+                                      cx="12"
+                                      cy="12"
+                                      r="10"
+                                      stroke="currentColor"
+                                      strokeWidth="4"
+                                    ></circle>
+                                    <path
+                                      className="opacity-75"
+                                      fill="currentColor"
+                                      d="M4 12a8 8 0 018-8v8H4z"
+                                    ></path>
+                                  </svg>
+                                  Submitting...
+                                </>
+                              ) : (
+                                'Submit Ratings'
+                              )}
+                            </button>
+
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+
               </div>
-            )}
+            ))}
           </>
         )}
       </main>

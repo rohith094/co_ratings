@@ -5,7 +5,8 @@ CREATE TABLE students (
     semesternumber INT NOT NULL,
     branchcode int NOT NULL,
     regulation varchar(50),
-    oesubjects JSON
+    oesubjects JSON,
+    professionalelective JSON
 ); 
 
 CREATE TABLE subjects (

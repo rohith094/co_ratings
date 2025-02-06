@@ -227,7 +227,7 @@ router.post('/addstudents', AdminAuth, upload.single('file'), async (req, res) =
 });
 
 //oe subjects route 
-router.put('/oesubjects/bulkupdate', AdminAuth, upload.single('excelFile'), async (req, res) => {
+router.put('/oesubjects/bulkupdate',AdminAuth, upload.single('excelFile'), async (req, res) => {
   try {
       if (!req.file) {
           return res.status(400).json({ error: 'No file uploaded' });
@@ -292,6 +292,94 @@ router.put('/oesubjects/bulkupdate', AdminAuth, upload.single('excelFile'), asyn
       res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
+
+//professional elective upload
+router.put('/professionalelective/bulkupdate',AdminAuth, upload.single('excelFile'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded. Please upload an Excel file.' });
+    }
+
+    const filePath = req.file.path;
+
+    // Read the Excel file
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet);
+
+    if (data.length === 0) {
+      fs.unlinkSync(filePath); // Delete file
+      return res.status(400).json({ error: 'The Excel file is empty. Please upload a valid file with data.' });
+    }
+
+    let successCount = 0;
+    let errorRecords = [];
+
+    for (const row of data) {
+      const jntuno = row.jntuno;
+      const professionalelective = row.professionalelective; // Comma-separated subjects
+
+      if (!jntuno) {
+        errorRecords.push({
+          jntuno: row.jntuno,
+          message: 'Student JNTU number is missing. Please provide the JNTU number for each record.'
+        });
+        continue;
+      }
+
+      if (!professionalelective) {
+        errorRecords.push({
+          jntuno: row.jntuno,
+          message: 'Professional elective subjects are missing. Please provide the subjects for each student.'
+        });
+        continue;
+      }
+
+      const subjectsArray = professionalelective.split(',').map(s => s.trim()); // Convert to JSON array
+      const subjectsJson = JSON.stringify(subjectsArray);
+
+      try {
+        // Update the database
+        const query = `UPDATE students SET professionalelective = ? WHERE jntuno = ?`;
+        const values = [subjectsJson, jntuno];
+
+        const [result] = await connection.execute(query, values);
+
+        if (result.affectedRows > 0) {
+          successCount++;
+        } else {
+          errorRecords.push({
+            jntuno: row.jntuno,
+            message: `No student found with JNTU number ${jntuno}. Please ensure the JNTU number is correct.`
+          });
+        }
+      } catch (updateError) {
+        errorRecords.push({
+          jntuno: row.jntuno,
+          message: `Error updating student with JNTU number ${jntuno}: ${updateError.message}`
+        });
+      }
+    }
+
+    fs.unlinkSync(filePath); // Clean up uploaded file
+
+    res.status(200).json({
+      message: 'Bulk update completed successfully.',
+      updated: successCount,
+      errors: errorRecords.length,
+      errorDetails: errorRecords.length > 0 ? errorRecords : null
+    });
+
+  } catch (error) {
+    console.error('Bulk update error:', error);
+    res.status(500).json({
+      error: 'Internal server error. Please try again later.',
+      details: error.message
+    });
+  }
+});
+
 
 //subject routes
 
@@ -358,6 +446,79 @@ router.post('/addsubjects', AdminAuth, upload.single('file'), async (req, res) =
     res.status(500).json({ error: 'Error adding subjects', details: error.message });
   }
 });
+
+
+router.post('/addelectivesubjects',AdminAuth, upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  const filePath = req.file.path;
+
+  try {
+    // Read the Excel file from the disk
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet);
+
+    // Iterate through the data array and insert each subject into the database
+    for (const subject of data) {
+      let { subjectcode, subjectname, branchcode, subjecttype } = subject;
+
+      // Default semesternumber to 0 if not provided
+      let semesternumber = subject.semesternumber ? parseInt(subject.semesternumber, 10) : 0;
+
+      // Validate required fields
+      if (!subjectcode || !subjectname || !branchcode) {
+        return res
+          .status(400)
+          .json({ error: `Invalid data in row: ${JSON.stringify(subject)}` });
+      }
+
+      // If subjecttype is missing, set default to 'regular'
+      const finalSubjectType = subjecttype ? subjecttype.trim() : 'regular';
+
+      // Check for duplicate entry based on subjectcode, semesternumber, and branchcode
+      const checkQuery = `SELECT * FROM subjects WHERE subjectcode = ? AND semesternumber = ? AND branchcode = ?`;
+      const [existingSubject] = await connection.query(checkQuery, [subjectcode, semesternumber, branchcode]);
+
+      if (existingSubject.length > 0) {
+        console.log(`Duplicate subject skipped: ${subjectcode}, Semester: ${semesternumber}, Branch: ${branchcode}`);
+        continue; // Skip adding this record
+      }
+
+      // Insert the subject into the database
+      const insertQuery = `
+        INSERT INTO subjects (subjectcode, subjectname, semesternumber, branchcode, subjecttype)
+        VALUES (?, ?, ?, ?, ?)
+      `;
+
+      await connection.query(insertQuery, [
+        subjectcode,
+        subjectname,
+        semesternumber,
+        branchcode,
+        finalSubjectType
+      ]);
+    }
+
+    // Delete the file after processing
+    fs.unlinkSync(filePath);
+
+    res.status(200).json({ message: 'Subjects added successfully' });
+  } catch (error) {
+    console.error('Error adding subjects:', error);
+
+    // Delete the file in case of an error
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    res.status(500).json({ error: 'Error adding subjects', details: error.message });
+  }
+});
+
 
 router.put('/subjects/bulkupdate', AdminAuth, upload.single('excelFile'), async (req, res) => {
   try {
@@ -520,7 +681,8 @@ router.post('/addcourseoutcomes', AdminAuth, upload.single('file'), async (req, 
   }
 });
 
-router.post('/addsubject', async (req, res) => {
+
+router.post('/addsubject',AdminAuth, async (req, res) => {
   try {
     const { subjectcode, subjectname, semesternumber, branchcode } = req.body;
 
@@ -684,7 +846,5 @@ router.put('/students/bulkupdate', AdminAuth, upload.single('excelFile'), async 
     res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
-
-
 
 export default router;
