@@ -293,6 +293,80 @@ router.put('/oesubjects/bulkupdate',AdminAuth, upload.single('excelFile'), async
   }
 });
 
+//semesterdata update 
+
+router.put('/semester/bulkupdate', AdminAuth, upload.single('excelFile'), async (req, res) => {
+  try {
+      if (!req.file) {
+          return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      const filePath = req.file.path;
+      const workbook = xlsx.readFile(filePath);
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const data = xlsx.utils.sheet_to_json(sheet);
+
+      if (data.length === 0) {
+          fs.unlinkSync(filePath); // Delete file
+          return res.status(400).json({ error: 'Excel file is empty' });
+      }
+
+      let successCount = 0;
+      let errorRecords = [];
+
+      // Get the semester column dynamically (excluding 'jntuno')
+      const columns = Object.keys(data[0]);
+      const semesterColumn = columns.find(col => col.startsWith('semester'));
+
+      if (!semesterColumn) {
+          return res.status(400).json({ error: 'No semester column found in the Excel file' });
+      }
+
+      for (const row of data) {
+          const jntuno = row.jntuno;
+          const subjects = row[semesterColumn]; // Get semester subjects
+
+          if (!jntuno || !subjects) {
+              errorRecords.push({ jntuno, message: 'Missing required fields' });
+              continue;
+          }
+
+          const subjectsArray = subjects.split(',').map(s => s.trim()); // Convert to JSON array
+          const subjectsJson = JSON.stringify(subjectsArray);
+
+          try {
+              // Update the selected semester's JSON field in the database
+              const query = `UPDATE students SET ${semesterColumn} = ? WHERE jntuno = ?`;
+              const values = [subjectsJson, jntuno];
+
+              const [result] = await connection.execute(query, values);
+
+              if (result.affectedRows > 0) {
+                  successCount++;
+              } else {
+                  errorRecords.push({ jntuno, message: 'No matching student found' });
+              }
+          } catch (updateError) {
+              errorRecords.push({ jntuno, message: updateError.message });
+          }
+      }
+
+      fs.unlinkSync(filePath); // Clean up uploaded file
+
+      res.status(200).json({
+          message: 'Bulk update completed',
+          updated: successCount,
+          errors: errorRecords.length,
+          errorDetails: errorRecords
+      });
+
+  } catch (error) {
+      console.error('Bulk update error:', error);
+      res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+});
+
 //professional elective upload
 router.put('/professionalelective/bulkupdate',AdminAuth, upload.single('excelFile'), async (req, res) => {
   try {

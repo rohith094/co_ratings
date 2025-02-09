@@ -363,6 +363,86 @@ router.get('/electivesubjects/:jntuno',AuthRoute, async (req, res) => {
 });
 
 
+//fetching semester wise subjects  
+
+const semesterMapping = {
+  '1': 'semesterone',
+  '2': 'semestertwo',
+  '3': 'semesterthree',
+  '4': 'semesterfour',
+  '5': 'semesterfive',
+  '6': 'semestersix',
+  '7': 'semesterseven',
+  '8': 'semestereight',
+};
+
+router.get('/semesterwise-subjects/:jntuno/:semesternumber', AuthRoute, async (req, res) => {
+  const { jntuno, semesternumber } = req.params;
+
+  if (!jntuno || jntuno.length < 2) {
+    return res.status(400).json({ error: 'Invalid jntuno format' });
+  }
+
+  const semesterField = semesterMapping[semesternumber];
+
+  if (!semesterField) {
+    return res.status(400).json({ error: 'Invalid semester number' });
+  }
+
+  try {
+    // Fetch semester subjects and branchcode for the given student
+    const studentQuery = `SELECT ${semesterField} AS subjects, branchcode FROM students WHERE jntuno = ?`;
+    const [studentRows] = await connection.execute(studentQuery, [jntuno]);
+
+    if (studentRows.length === 0) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    const semesterSubjects = studentRows[0].subjects || [];
+    const branchcode = studentRows[0].branchcode;
+
+    if (semesterSubjects.length === 0) {
+      return res.status(200).json({ message: 'No subjects found for this semester', subjects: [] });
+    }
+
+    // Fetch subject details from subjects table with semester number included
+    const placeholders = semesterSubjects.map(() => '?').join(',');
+    const subjectQuery = `
+      SELECT * FROM subjects 
+      WHERE subjectcode IN (${placeholders}) 
+      AND branchcode = ? 
+      AND semesternumber = ?`;
+
+    const [subjectDetails] = await connection.execute(subjectQuery, [...semesterSubjects, branchcode, semesternumber]);
+
+    // Find missing subject codes
+    const foundSubjectCodes = subjectDetails.map((sub) => sub.subjectcode);
+    console.log(foundSubjectCodes);
+    const missingSubjects = semesterSubjects.filter((code) => !foundSubjectCodes.includes(code));
+    console.log(missingSubjects);
+
+    if (missingSubjects.length > 0) {
+      // Fetch missing elective subjects
+      const electivePlaceholders = missingSubjects.map(() => '?').join(',');
+      const electiveQuery = `
+        SELECT * FROM subjects 
+        WHERE subjectcode IN (${electivePlaceholders}) 
+        AND subjecttype = 'elective' 
+        `;
+
+      const [electiveSubjects] = await connection.execute(electiveQuery, [...missingSubjects]);
+
+      // Merge elective subjects into the final list
+      subjectDetails.push(...electiveSubjects);
+    }
+
+    res.status(200).json({ jntuno, semesternumber, subjects: subjectDetails });
+  } catch (err) {
+    console.error('Error fetching semester-wise subjects:', err);
+    res.status(500).json({ error: 'An error occurred while fetching subjects', details: err.message });
+  }
+});
+
 
 
 export default router;
