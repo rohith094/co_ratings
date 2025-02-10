@@ -410,10 +410,9 @@ router.get('/semesterwise-subjects/:jntuno/:semesternumber', AuthRoute, async (r
     const subjectQuery = `
       SELECT * FROM subjects 
       WHERE subjectcode IN (${placeholders}) 
-      AND branchcode = ? 
-      AND semesternumber = ?`;
+      AND branchcode = ?`;
 
-    const [subjectDetails] = await connection.execute(subjectQuery, [...semesterSubjects, branchcode, semesternumber]);
+    const [subjectDetails] = await connection.execute(subjectQuery, [...semesterSubjects, branchcode]);
 
     // Find missing subject codes
     const foundSubjectCodes = subjectDetails.map((sub) => sub.subjectcode);
