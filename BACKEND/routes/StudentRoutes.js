@@ -443,5 +443,21 @@ router.get('/semesterwise-subjects/:jntuno/:semesternumber', AuthRoute, async (r
 });
 
 
+//checking for submitted ratings subjects
+router.get('/check-rating/:jntuno/:subjectcode/:ratingtype', AuthRoute, async (req, res) => {
+  const { jntuno, subjectcode, ratingtype } = req.params;
+  const query = `SELECT COUNT(*) AS count FROM ratings WHERE jntuno = ? AND subjectcode = ? AND rating_type = ?`;
+
+  try {
+    const [result] = await connection.execute(query, [jntuno, subjectcode, ratingtype]);
+    const exists = result[0].count > 0;
+    res.status(200).json({ exists });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+
 
 export default router;

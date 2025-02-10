@@ -16,6 +16,7 @@ const Ratings = () => {
   const [courseOutcomes, setCourseOutcomes] = useState({});
   const [finalSubmitEnabled, setFinalSubmitEnabled] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedSemester, setSelectedSemester] = useState(null);
 
   const navigate = useNavigate();
 
@@ -38,6 +39,12 @@ const Ratings = () => {
   useEffect(() => {
     setFinalSubmitEnabled(checkAllSubjectsRated());
   }, [ratings, submittedSubjects]);
+
+  useEffect(() => {
+    if (selectedSemester) {
+      fetchSubjects(selectedSemester, studentInfo.jntuno);
+    }
+  }, [selectedSemester]);
 
 
   const handleFinalSubmit = async () => {
@@ -69,9 +76,10 @@ const Ratings = () => {
       data.branchshortcut = branchMapping[data.branchcode] || data.branchcode;
       setStudentInfo(data);
 
-      fetchSubjects(data.semesternumber, data.jntuno);
+      // Automatically select the latest semester
+      setSelectedSemester(data.semesternumber);
+
       checkRatedSubjects(data.jntuno);
-      return data; // Return updated data
     } catch (err) {
       console.error('Error fetching student info:', err);
     } finally {
@@ -91,6 +99,7 @@ const Ratings = () => {
     }
   };
 
+
   const fetchSubjects = async (semesternumber, jntuno) => {
     setLoading(true);
     try {
@@ -101,14 +110,42 @@ const Ratings = () => {
           headers: { Authorization: `${token}` },
         }
       );
-      setSubjects(response.data.subjects); // Ensure correct data extraction
+      const fetchedSubjects = response.data.subjects;
+
+      // Initialize an array to keep track of subjects that are already rated for specific types
+      const submittedSubjectsTemp = [];
+
+      // Check if each subject has already been rated for coursealignment and courseattainment
+      const updatedSubjects = await Promise.all(fetchedSubjects.map(async (subject) => {
+        const subjectTypes = ['coursealignment', 'courseattainment'];
+
+        const ratingsExist = await Promise.all(subjectTypes.map(async (subjectType) => {
+          const { data } = await axios.get(
+            `http://localhost:3002/student/check-rating/${jntuno}/${subject.subjectcode}/${subjectType}`,
+            { headers: { Authorization: `${token}` } }
+          );
+          return data.exists;
+        }));
+
+        // For each ratingType, mark as submitted if already rated
+        subjectTypes.forEach((subjectType, index) => {
+          if (ratingsExist[index]) {
+            submittedSubjectsTemp.push(`${subject.subjectcode}-${subjectType}`);
+          }
+        });
+
+        return { ...subject, rated: ratingsExist.some((exists) => exists) };
+      }));
+
+      // Update the state after all promises have resolved
+      setSubmittedSubjects(submittedSubjectsTemp);
+      setSubjects(updatedSubjects); // Set subjects with updated rating status
     } catch (err) {
       console.error('Error fetching subjects:', err);
     } finally {
       setLoading(false);
     }
   };
-
 
   const fetchCourseOutcomes = async (subjectCode) => {
     try {
@@ -217,8 +254,7 @@ const Ratings = () => {
       if (response.data.feedback_submitted) {
         navigate('/feedbacksubmitted');
       } else {
-        const studentData = await fetchStudentInfo(); // Ensure studentInfo updates
-        // fetchElectives(studentData.jntuno); // Now fetch open electives
+        await fetchStudentInfo();
       }
     } catch (error) {
       console.error('Error checking feedback status:', error);
@@ -226,24 +262,53 @@ const Ratings = () => {
     }
   };
 
+  const handleLogout = () => {
+    Cookies.remove('studenttoken');
+    navigate('/login');
+
+    // Show toast notification for logout
+    toast.info('You have logged out.');
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
-      <nav className="bg-blue-800 text-white p-4 flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold">{studentInfo.name}</h1>
-          <p>{`Branch: ${studentInfo.branchshortcut || ''}, Semester: ${studentInfo.semesternumber || ''}`}</p>
+      <nav className="bg-blue-800 text-white p-4 flex justify-between items-center px-6 py-4">
+        <div className="flex items-center space-x-6">
+          <div>
+            <h1 className="text-2xl font-bold">{studentInfo.name}</h1>
+            <div className="flex items-center space-x-4">
+              <p className="text-lg">Branch: {studentInfo.branchshortcut || ''}</p>
+              <div className="relative">
+                <label className="text-lg font-bold mr-2">Semester:</label>
+                <select
+                  value={selectedSemester || ''}
+                  onChange={(e) => setSelectedSemester(parseInt(e.target.value))}
+                  className="appearance-none px-4 border border-gray-300 rounded-lg bg-white text-black shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                >
+                  {Array.from({ length: (studentInfo.semesternumber || 1) - 2 }, (_, i) => (
+                    <option key={i + 3} value={i + 3}>
+                      Semester {i + 3}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center">
+        <div className="flex items-center space-x-4">
+          {/* Logout Button */}
           <button
-            className={`mr-4 py-2 px-6 rounded ${finalSubmitEnabled ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-400'} cursor-pointer`}
-            disabled={!finalSubmitEnabled}
-            onClick={handleFinalSubmit}
+            onClick={handleLogout}
+            className="px-6 py-3 text-white bg-red-600 rounded-lg shadow-lg hover:bg-red-700 cursor-pointer transition duration-200"
           >
-            Final Submit
+            Logout
           </button>
         </div>
       </nav>
+
+
+
       <main className="p-6">
         {loading ? (
           <div className="flex justify-center items-center h-64">
@@ -259,8 +324,9 @@ const Ratings = () => {
                 {subjects.map((subject) => (
                   <div key={`${subject.subjectcode}-${ratingType}`} className="mb-6">
                     <div
-                      className={`bg-gray-200 p-4 rounded-lg flex justify-between items-center cursor-pointer ${submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`) ? 'bg-green-300' : ''}`}
-                      onClick={() => toggleAccordion(subject.subjectcode, ratingType)}
+                      className={`bg-gray-200 p-4 rounded-lg flex justify-between items-center cursor-pointer 
+            ${submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`) ? 'bg-green-300' : ''}`}
+                      onClick={() => !submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`) && toggleAccordion(subject.subjectcode, ratingType)} // Disable toggle if already rated
                     >
                       <span>{subject.subjectname}-{subject.subjectcode}</span>
                       <span className="flex items-center">
@@ -277,9 +343,8 @@ const Ratings = () => {
                         )}
                       </span>
                     </div>
-                    {openAccordions.includes(`${subject.subjectcode}-${ratingType}`) && (
+                    {openAccordions.includes(`${subject.subjectcode}-${ratingType}`) && !submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`) && (
                       <div className="p-4 bg-white shadow-lg rounded-lg mt-4">
-
                         {courseOutcomes[subject.subjectcode]?.map(({ cocode, coname }) => (
                           <div key={cocode} className="mb-4">
                             <div className="flex justify-between items-center">
@@ -288,28 +353,26 @@ const Ratings = () => {
                                 <p className="text-sm text-gray-600">CO Name: {coname}</p>
                               </div>
                               <div className="flex space-x-2">
-
-                                {/* Star buttons with numbers inside */}
                                 {[1, 2, 3, 4, 5].map((star) => (
                                   <button
                                     key={star}
-                                    className={`relative p-2 cursor-pointer text-2xl flex flex-col items-center ${ratings[subject.subjectcode]?.[cocode]?.[ratingType] >= star ? 'text-yellow-400' : 'text-gray-300'}`}
+                                    className={`relative p-2 cursor-pointer text-2xl flex flex-col items-center 
+                          ${ratings[subject.subjectcode]?.[cocode]?.[ratingType] >= star ? 'text-yellow-400' : 'text-gray-300'}`}
                                     onClick={() => handleRatingChange(subject.subjectcode, cocode, star, ratingType)}
                                   >
                                     {ratings[subject.subjectcode]?.[cocode]?.[ratingType] >= star ? <FaStar /> : <FaRegStar />}
                                     <span className="absolute bottom-0 text-xs font-bold text-black">{star}</span>
                                   </button>
                                 ))}
-
                               </div>
                             </div>
                           </div>
                         ))}
                         <button
-                          className={`mt-4 py-2 px-4 rounded bg-green-500 hover:bg-green-600 text-white cursor-pointer flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-75 cursor-not-allowed' : ''
-                            }`}
+                          className={`mt-4 py-2 px-4 rounded bg-green-500 hover:bg-green-600 text-white cursor-pointer flex items-center justify-center gap-2 
+                ${isSubmitting ? 'opacity-75 cursor-not-allowed' : ''}`}
                           onClick={() => handleSubmit(subject.subjectcode, ratingType)}
-                          disabled={isSubmitting}
+                          disabled={isSubmitting || submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`)} // Disable submit button if already submitted
                         >
                           {isSubmitting ? (
                             <>
@@ -339,14 +402,14 @@ const Ratings = () => {
                             'Submit Ratings'
                           )}
                         </button>
-
-
                       </div>
                     )}
                   </div>
                 ))}
               </div>
             ))}
+
+
           </>
         )}
       </main>
