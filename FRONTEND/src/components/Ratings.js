@@ -16,10 +16,7 @@ const Ratings = () => {
   const [courseOutcomes, setCourseOutcomes] = useState({});
   const [finalSubmitEnabled, setFinalSubmitEnabled] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [electives, setElectives] = useState({
-    oesubjects: [],
-    professionalelectives: [],
-  });
+
   const navigate = useNavigate();
 
   const branchMapping = {
@@ -40,7 +37,7 @@ const Ratings = () => {
 
   useEffect(() => {
     setFinalSubmitEnabled(checkAllSubjectsRated());
-  }, [ratings, submittedSubjects, electives]);
+  }, [ratings, submittedSubjects]);
 
 
   const handleFinalSubmit = async () => {
@@ -71,6 +68,7 @@ const Ratings = () => {
       const data = response.data;
       data.branchshortcut = branchMapping[data.branchcode] || data.branchcode;
       setStudentInfo(data);
+
       fetchSubjects(data.semesternumber, data.jntuno);
       checkRatedSubjects(data.jntuno);
       return data; // Return updated data
@@ -98,7 +96,7 @@ const Ratings = () => {
     try {
       const token = Cookies.get('studenttoken');
       const response = await axios.get(
-        `https://co-rating-qn28.onrender.com/student/semesterwise-subjects/${jntuno}/${semesternumber}`, 
+        `https://co-rating-qn28.onrender.com/student/semesterwise-subjects/${jntuno}/${semesternumber}`,
         {
           headers: { Authorization: `${token}` },
         }
@@ -110,7 +108,7 @@ const Ratings = () => {
       setLoading(false);
     }
   };
-  
+
 
   const fetchCourseOutcomes = async (subjectCode) => {
     try {
@@ -158,20 +156,7 @@ const Ratings = () => {
         submittedSubjects.includes(`${subject.subjectcode}-${ratingType}`)
       )
     );
-
-    const allOEsRated = electives.oesubjects.every((oe) =>
-      ['coursealignment', 'courseattainment'].every((ratingType) =>
-        submittedSubjects.includes(`${oe.subjectcode}-${ratingType}`)
-      )
-    );
-
-    const allPEsRated = electives.professionalelectives.every((pe) =>
-      ['coursealignment', 'courseattainment'].every((ratingType) =>
-        submittedSubjects.includes(`${pe.subjectcode}-${ratingType}`)
-      )
-    );
-
-    return allSubjectsRated && allOEsRated && allPEsRated;
+    return allSubjectsRated;
   };
 
   const handleSubmit = async (subjectCode, ratingType) => {
@@ -233,36 +218,13 @@ const Ratings = () => {
         navigate('/feedbacksubmitted');
       } else {
         const studentData = await fetchStudentInfo(); // Ensure studentInfo updates
-        fetchElectives(studentData.jntuno); // Now fetch open electives
+        // fetchElectives(studentData.jntuno); // Now fetch open electives
       }
     } catch (error) {
       console.error('Error checking feedback status:', error);
       toast.error('Error checking feedback status');
     }
   };
-
-  const fetchElectives = async (jntuno) => {
-    try {
-      const token = Cookies.get('studenttoken');
-
-      // Fetch Elective Subjects (OE and PE) from the backend
-      const electivesResponse = await axios.get(
-        `https://co-rating-qn28.onrender.com/student/electivesubjects/${jntuno}`,
-        { headers: { Authorization: `${token}` } }
-      );
-
-      // Update the state with the fetched data
-      setElectives({
-        oesubjects: electivesResponse.data.oesubjects || [],
-        professionalelectives: electivesResponse.data.professionalelectives || [],
-      });
-
-    } catch (error) {
-      console.error('Error fetching electives:', error);
-      toast.error('Error fetching electives');
-    }
-  };
-
 
   return (
     <div className="min-h-screen bg-gray-100">
