@@ -121,7 +121,7 @@ const Ratings = () => {
 
         const ratingsExist = await Promise.all(subjectTypes.map(async (subjectType) => {
           const { data } = await axios.get(
-            `http://localhost:3002/student/check-rating/${jntuno}/${subject.subjectcode}/${subjectType}`,
+            `https://co-rating-qn28.onrender.com/student/check-rating/${jntuno}/${subject.subjectcode}/${subjectType}`,
             { headers: { Authorization: `${token}` } }
           );
           return data.exists;
