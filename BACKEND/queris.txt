@@ -67,3 +67,82 @@ CREATE TABLE overallratings (
     FOREIGN KEY (jntuno) REFERENCES students(jntuno) ON DELETE CASCADE,
     FOREIGN KEY (subjectcode) REFERENCES subjects(subjectcode) ON DELETE CASCADE
 );
+
+
+
+
+
+router.post('/fetch-co-ratings', AdminAuth, async (req, res) => {
+  try {
+    const { jntunos, subjectcode } = req.body;
+    if (!jntunos || !subjectcode || !Array.isArray(jntunos)) {
+      return res.status(400).json({ message: 'jntunos must be an array and subjectcode is required' });
+    }
+
+    // Fetch distinct CO codes of type 'courseattainment' for the given subject
+    const coQuery = `
+      SELECT DISTINCT cocode FROM ratings WHERE subjectcode = ? AND rating_type = 'courseattainment' ORDER BY cocode;
+    `;
+    const [coResults] = await connection.execute(coQuery, [subjectcode]);
+    const coCodes = coResults.map(row => row.cocode);
+
+    if (coCodes.length === 0) {
+      return res.status(404).json({ message: 'No COs found for the given subject' });
+    }
+
+    // Fetch ratings of type 'courseattainment' for the given students and subject
+    const query = `
+      SELECT r.jntuno, r.subjectcode, r.cocode, r.rating, s.subjectname
+      FROM ratings r
+      JOIN subjects s ON r.subjectcode = s.subjectcode
+      WHERE r.jntuno IN (?) AND r.subjectcode = ? AND r.rating_type = 'courseattainment'
+      ORDER BY r.jntuno, r.cocode;
+    `;
+    const [ratings] = await connection.execute(query, [jntunos, subjectcode]);
+
+    if (ratings.length === 0) {
+      return res.status(404).json({ message: 'No ratings found for the given students and subject' });
+    }
+
+    const report = {};
+
+    ratings.forEach(rating => {
+      const { jntuno, subjectcode, cocode, rating: studentRating, subjectname } = rating;
+
+      if (!report[jntuno]) {
+        report[jntuno] = { jntuno, subjectcode, subjectname, co_ratings: {} };
+      }
+
+      report[jntuno].co_ratings[cocode] = studentRating;
+    });
+
+    // Prepare Excel headers dynamically
+    const excelHeaders = ['S.No', 'JNTU No', 'Subject Code', 'Subject Name', ...coCodes];
+    const excelData = [excelHeaders];
+
+    let sno = 1;
+    Object.values(report).forEach(student => {
+      const row = [
+        sno++,
+        student.jntuno,
+        student.subjectcode,
+        student.subjectname,
+        ...coCodes.map(co => student.co_ratings[co] || 'N/A')
+      ];
+      excelData.push(row);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'CO Ratings Report');
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=co_ratings_report.xlsx');
+    res.end(XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' }));
+  } catch (error) {
+    console.error('Error fetching CO ratings:', error);
+    res.status(500).send('An error occurred while fetching CO ratings');
+  }
+});
+
+if the student don't have ratings for the subjects ignore them give the report to those who gave the ratings for that subject 

@@ -11,6 +11,7 @@ import AdminProtectedRoute from './AdminProtectedRoute';
 import SubjectsUpload from "./components/SubjectsUpload";
 import CourseOutcomesUpload from "./components/CourseOutcomesUpload";
 import StudentsUpload from "./components/StudentsUpload";
+import SubjectsFetcher from "./components/SubjectsFetcher";
 
 function App() {
   return (
@@ -31,6 +32,7 @@ function App() {
           <Route path="/admin/uploadsubjects" element={<SubjectsUpload />} />
           <Route path="/admin/uploadcourseoutcomes" element={<CourseOutcomesUpload />} />
           <Route path="/admin/uploadstudents" element={<StudentsUpload />} />
+          <Route path="/admin/downloadreport" element={<SubjectsFetcher />} />
         </Route>
       </Routes>
       <Outlet />

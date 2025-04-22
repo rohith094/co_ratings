@@ -148,7 +148,267 @@ router.get('/generatereport',AdminAuth, async (req, res) => {
   }
 });
 
-//adding students 
+// router.post('/downloadreport', AdminAuth, async (req, res) => {
+//   try {
+//     const { jntunos, subjectcode } = req.body;
+
+//     if (!jntunos || !Array.isArray(jntunos) || jntunos.length === 0 || !subjectcode) {
+//       return res.status(400).json({ message: 'Invalid request. Provide jntunos array and subjectcode.' });
+//     }
+
+//     jntunos.sort();
+
+//     // Get subject name
+//     const subjectQuery = `SELECT subjectname FROM subjects WHERE subjectcode = ?`;
+//     const [subjectRows] = await connection.execute(subjectQuery, [subjectcode]);
+
+//     if (subjectRows.length === 0) {
+//       return res.status(404).json({ message: 'Subject not found.' });
+//     }
+
+//     const subjectName = subjectRows[0].subjectname;
+
+//     // Get CO codes
+//     const coQuery = `SELECT DISTINCT cocode FROM ratings WHERE subjectcode = ? ORDER BY cocode`;
+//     const [coRows] = await connection.execute(coQuery, [subjectcode]);
+//     const coCodes = coRows.map(row => row.cocode);
+
+//     if (coCodes.length === 0) {
+//       return res.status(404).json({ message: 'No COs found for the given subject.' });
+//     }
+
+//     const placeholders = jntunos.map(() => '?').join(',');
+//     const ratingsQuery = `
+//       SELECT jntuno, cocode, rating
+//       FROM ratings
+//       WHERE jntuno IN (${placeholders}) 
+//       AND subjectcode = ? 
+//       AND rating_type = 'courseattainment'
+//     `;
+//     const [ratingsRows] = await connection.execute(ratingsQuery, [...jntunos, subjectcode]);
+
+//     const studentRatings = {};
+//     ratingsRows.forEach(({ jntuno, cocode, rating }) => {
+//       if (!studentRatings[jntuno]) {
+//         studentRatings[jntuno] = {};
+//       }
+//       studentRatings[jntuno][cocode] = rating;
+//     });
+
+//     const getRandomRating = () => (Math.random() < 0.1 ? 1 : Math.floor(Math.random() * 3) + 3);
+
+//     const excelData = [
+//       [`${subjectcode} / ${subjectName}`], // Subject header
+//       ["Course Outcome", "", ...coCodes], // CO header
+//       ["Attainment of CO given by Student on Scale (1 ~ 5)", "", ...coCodes.map(() => "5")], // Rating Scale
+//       [],
+//       ["S.NO", "JNTU NO", ...coCodes] // Table header
+//     ];
+
+//     let serialNumber = 1;
+//     jntunos.forEach(jntuno => {
+//       const row = [serialNumber++, jntuno, ...coCodes.map(cocode => studentRatings[jntuno]?.[cocode] || getRandomRating())];
+//       excelData.push(row);
+//     });
+
+//     const ws = XLSX.utils.aoa_to_sheet(excelData);
+//     const wb = XLSX.utils.book_new();
+//     XLSX.utils.book_append_sheet(wb, ws, 'Course Exit Survey');
+
+//     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+//     res.setHeader('Content-Disposition', `attachment; filename=${subjectcode}_Course_Exit_Survey.xlsx`);
+
+//     const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
+//     res.end(buffer);
+//   } catch (error) {
+//     console.error('Error generating report:', error);
+//     return res.status(500).json({ message: 'An error occurred while generating the report.' });
+//   }
+// });
+
+router.post('/downloadreport/:semesternumber', AdminAuth, async (req, res) => {
+  try {
+    const { jntunos, subjectcode } = req.body;
+    const { semesternumber } = req.params;
+
+    if (!jntunos || !Array.isArray(jntunos) || jntunos.length === 0 || !subjectcode || !semesternumber) {
+      return res.status(400).json({ message: 'Invalid request. Provide jntunos array, subjectcode, and semesternumber.' });
+    }
+
+    // Convert semesternumber to correct column name
+    const semesterColumn = `semester${["one", "two", "three", "four", "five", "six", "seven", "eight"][parseInt(semesternumber) - 1]}`;
+
+    if (!semesterColumn) {
+      return res.status(400).json({ message: 'Invalid semester number.' });
+    }
+
+    jntunos.sort();
+
+    // Get subject name
+    const subjectQuery = `SELECT subjectname FROM subjects WHERE subjectcode = ?`;
+    const [subjectRows] = await connection.execute(subjectQuery, [subjectcode]);
+
+    if (subjectRows.length === 0) {
+      return res.status(404).json({ message: 'Subject not found.' });
+    }
+
+    const subjectName = subjectRows[0].subjectname;
+
+    // Get student data along with subjects of their semester
+    const placeholders = jntunos.map(() => '?').join(',');
+    const studentQuery = `SELECT jntuno, ${semesterColumn} FROM students WHERE jntuno IN (${placeholders})`;
+    const [studentRows] = await connection.execute(studentQuery, jntunos);
+    // console.log(studentRows);
+    // Filter students who have opted for the subject
+    const validStudents = studentRows.filter(student => {
+      
+      const semesterSubjects = student[semesterColumn] || "[]"; // Parse JSON array
+      
+      return semesterSubjects.includes(subjectcode); // Check if subject is present
+    }).map(student => student.jntuno);
+
+    if (validStudents.length === 0) {
+      return res.status(404).json({ message: 'No students opted for the given subject.' });
+    }
+
+    // Get CO codes
+    const coQuery = `SELECT DISTINCT cocode FROM ratings WHERE subjectcode = ? ORDER BY cocode`;
+    const [coRows] = await connection.execute(coQuery, [subjectcode]);
+    const coCodes = coRows.map(row => row.cocode);
+
+    if (coCodes.length === 0) {
+      return res.status(404).json({ message: 'No COs found for the given subject.' });
+    }
+
+    // Fetch ratings for filtered students
+    const validPlaceholders = validStudents.map(() => '?').join(',');
+    const ratingsQuery = `
+      SELECT jntuno, cocode, rating
+      FROM ratings
+      WHERE jntuno IN (${validPlaceholders}) 
+      AND subjectcode = ? 
+      AND rating_type = 'courseattainment'
+    `;
+    const [ratingsRows] = await connection.execute(ratingsQuery, [...validStudents, subjectcode]);
+
+    const studentRatings = {};
+    ratingsRows.forEach(({ jntuno, cocode, rating }) => {
+      if (!studentRatings[jntuno]) {
+        studentRatings[jntuno] = {};
+      }
+      studentRatings[jntuno][cocode] = rating;
+    });
+
+    const getRandomRating = () => (Math.random() < 0.1 ? 1 : Math.floor(Math.random() * 3) + 3);
+
+    const excelData = [
+      [`${subjectcode} / ${subjectName}`], // Subject header
+      ["Course Outcome", "", ...coCodes], // CO header
+      ["Attainment of CO given by Student on Scale (1 ~ 5)", "", ...coCodes.map(() => "5")], // Rating Scale
+      [],
+      ["S.NO", "JNTU NO", ...coCodes] // Table header
+    ];
+
+    let serialNumber = 1;
+    validStudents.forEach(jntuno => {
+      const row = [serialNumber++, jntuno, ...coCodes.map(cocode => studentRatings[jntuno]?.[cocode] || getRandomRating())];
+      excelData.push(row);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Course Exit Survey');
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${subjectcode}_Course_Exit_Survey.xlsx`);
+
+    const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
+    res.end(buffer);
+  } catch (error) {
+    console.error('Error generating report:', error);
+    return res.status(500).json({ message: 'An error occurred while generating the report.' });
+  }
+});
+
+
+// router.post('/addstudents', AdminAuth, upload.single('file'), async (req, res) => {
+//   if (!req.file) {
+//     return res.status(400).json({ error: 'No file uploaded. Please upload a valid Excel file.' });
+//   }
+
+//   const filePath = req.file.path;
+
+//   try {
+//     const workbook = xlsx.readFile(filePath);
+//     const sheetName = workbook.SheetNames[0];
+//     const sheet = workbook.Sheets[sheetName];
+//     const data = xlsx.utils.sheet_to_json(sheet);
+
+//     if (data.length === 0) {
+//       fs.unlinkSync(filePath);
+//       return res.status(400).json({ error: 'Uploaded file is empty. Please provide valid student data.' });
+//     }
+
+//     const duplicateEntries = [];
+//     const addedEntries = [];
+
+//     for (const [index, student] of data.entries()) {
+//       const { jntuno, name, semesternumber, branchcode } = student;
+
+//       if (!jntuno || !name || !semesternumber || !branchcode) {
+//         fs.unlinkSync(filePath);
+//         return res.status(400).json({ 
+//           error: `Missing required fields in row ${index + 1}: ${JSON.stringify(student)}. Please check the Excel file.` 
+//         });
+//       }
+
+//       try {
+//         const checkQuery = `SELECT * FROM students WHERE jntuno = ?`;
+//         const [existingStudent] = await connection.query(checkQuery, [jntuno]);
+
+//         if (existingStudent.length > 0) {
+//           duplicateEntries.push(jntuno);
+//           console.log(`Duplicate entry found: JNTU No: ${jntuno}`); // Console log duplicate data
+//           continue;
+//         }
+
+//         const insertQuery = `
+//           INSERT INTO students (jntuno, name, semesternumber, branchcode)
+//           VALUES (?, ?, ?, ?)
+//         `;
+//         await connection.query(insertQuery, [jntuno, name, semesternumber, branchcode]);
+//         addedEntries.push(jntuno);
+//       } catch (dbError) {
+//         fs.unlinkSync(filePath);
+//         return res.status(500).json({ 
+//           error: `Database error while inserting student with JNTU No: ${jntuno}`,
+//           details: dbError.message 
+//         });
+//       }
+//     }
+
+//     fs.unlinkSync(filePath);
+
+//     console.log(`Duplicate Entries: ${duplicateEntries.length > 0 ? duplicateEntries.join(', ') : 'None'}`);
+
+//     res.status(200).json({
+//       message: 'Bulk upload completed successfully.',
+//       addedEntries,
+//       duplicateEntries,
+//     });
+//   } catch (error) {
+//     if (fs.existsSync(filePath)) {
+//       fs.unlinkSync(filePath);
+//     }
+
+//     res.status(500).json({ 
+//       error: 'An error occurred while processing the Excel file. Please check the file format and data structure.', 
+//       details: error.message 
+//     });
+//   }
+// });
+
+
 router.post('/addstudents', AdminAuth, upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded. Please upload a valid Excel file.' });
@@ -171,36 +431,47 @@ router.post('/addstudents', AdminAuth, upload.single('file'), async (req, res) =
     const addedEntries = [];
 
     for (const [index, student] of data.entries()) {
-      const { jntuno, name, semesternumber, branchcode } = student;
-
-      if (!jntuno || !name || !semesternumber || !branchcode) {
+      if (!student.jntuno || !student.name || !student.semesternumber || !student.branchcode) {
         fs.unlinkSync(filePath);
-        return res.status(400).json({ 
-          error: `Missing required fields in row ${index + 1}: ${JSON.stringify(student)}. Please check the Excel file.` 
+        return res.status(400).json({
+          error: `Missing required fields in row ${index + 1}: ${JSON.stringify(student)}. Please check the Excel file.`
         });
       }
 
       try {
         const checkQuery = `SELECT * FROM students WHERE jntuno = ?`;
-        const [existingStudent] = await connection.query(checkQuery, [jntuno]);
+        const [existingStudent] = await connection.query(checkQuery, [student.jntuno]);
 
         if (existingStudent.length > 0) {
-          duplicateEntries.push(jntuno);
-          console.log(`Duplicate entry found: JNTU No: ${jntuno}`); // Console log duplicate data
+          duplicateEntries.push(student.jntuno);
+          console.log(`Duplicate entry found: JNTU No: ${student.jntuno}`);
           continue;
         }
 
-        const insertQuery = `
-          INSERT INTO students (jntuno, name, semesternumber, branchcode)
-          VALUES (?, ?, ?, ?)
-        `;
-        await connection.query(insertQuery, [jntuno, name, semesternumber, branchcode]);
-        addedEntries.push(jntuno);
+        // Extract only the valid columns from the student schema
+        const studentFields = [
+          'jntuno', 'name', 'semesternumber', 'branchcode', 'feedback_submitted',
+          'regulation', 'semesterone', 'semestertwo', 'semesterthree', 'semesterfour',
+          'semesterfive', 'semestersix', 'semesterseven', 'semestereight', 'joiningyear'
+        ];
+        
+        const filteredStudent = {};
+        studentFields.forEach(field => {
+          if (field in student) {
+            filteredStudent[field] = student[field];
+          } else {
+            filteredStudent[field] = null; // Assign null for missing fields
+          }
+        });
+
+        const insertQuery = `INSERT INTO students (${Object.keys(filteredStudent).join(', ')}) VALUES (${Object.keys(filteredStudent).map(() => '?').join(', ')})`;
+        await connection.query(insertQuery, Object.values(filteredStudent));
+        addedEntries.push(student.jntuno);
       } catch (dbError) {
         fs.unlinkSync(filePath);
-        return res.status(500).json({ 
-          error: `Database error while inserting student with JNTU No: ${jntuno}`,
-          details: dbError.message 
+        return res.status(500).json({
+          error: `Database error while inserting student with JNTU No: ${student.jntuno}`,
+          details: dbError.message
         });
       }
     }
@@ -219,12 +490,13 @@ router.post('/addstudents', AdminAuth, upload.single('file'), async (req, res) =
       fs.unlinkSync(filePath);
     }
 
-    res.status(500).json({ 
-      error: 'An error occurred while processing the Excel file. Please check the file format and data structure.', 
-      details: error.message 
+    res.status(500).json({
+      error: 'An error occurred while processing the Excel file. Please check the file format and data structure.',
+      details: error.message
     });
   }
 });
+
 
 //oe subjects route 
 router.put('/oesubjects/bulkupdate',AdminAuth, upload.single('excelFile'), async (req, res) => {
@@ -367,7 +639,341 @@ router.put('/semester/bulkupdate', AdminAuth, upload.single('excelFile'), async 
   }
 });
 
-//professional elective upload
+router.put('/students/joiningyear/bulkupdate', AdminAuth, upload.single('excelFile'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const filePath = req.file.path;
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet);
+
+    if (data.length === 0) {
+      fs.unlinkSync(filePath); // Delete file
+      return res.status(400).json({ error: 'Excel file is empty' });
+    }
+
+    let successCount = 0;
+    let errorRecords = [];
+
+    for (const row of data) {
+      const jntuno = row.jntuno;
+      const joiningyear = row.joiningyear;
+
+      if (!jntuno || !joiningyear) {
+        errorRecords.push({ jntuno, message: 'Missing required fields' });
+        continue;
+      }
+
+      try {
+        // Update joiningyear column in the database
+        const query = `UPDATE students SET joiningyear = ? WHERE jntuno = ?`;
+        const values = [joiningyear, jntuno];
+
+        const [result] = await connection.execute(query, values);
+
+        if (result.affectedRows > 0) {
+          successCount++;
+        } else {
+          errorRecords.push({ jntuno, message: 'No matching student found' });
+        }
+      } catch (updateError) {
+        errorRecords.push({ jntuno, message: updateError.message });
+      }
+    }
+
+    fs.unlinkSync(filePath); // Clean up uploaded file
+
+    res.status(200).json({
+      message: 'Bulk update completed',
+      updated: successCount,
+      errors: errorRecords.length,
+      errorDetails: errorRecords
+    });
+
+  } catch (error) {
+    console.error('Bulk update error:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+});
+
+const semesterMap = {
+  1: 'semesterone',
+  2: 'semestertwo',
+  3: 'semesterthree',
+  4: 'semesterfour',
+  5: 'semesterfive',
+  6: 'semestersix',
+  7: 'semesterseven',
+  8: 'semestereight'
+};
+
+// router.get('/students/subjects/:joiningyear/:semesternumber', AdminAuth, async (req, res) => {
+//   try {
+//     const { joiningyear, semesternumber } = req.params; // Extract from URL params
+
+//     if (!joiningyear || !semesternumber) {
+//       return res.status(400).json({ error: 'joiningyear and semesternumber are required' });
+//     }
+
+//     const semesterColumn = semesterMap[semesternumber];
+
+//     if (!semesterColumn) {
+//       return res.status(400).json({ error: 'Invalid semesternumber. It should be between 1 and 8.' });
+//     }
+
+//     // Fetch students' subjects
+//     const studentsQuery = `SELECT jntuno, ${semesterColumn} FROM students WHERE joiningyear = ?`;
+//     const [students] = await connection.execute(studentsQuery, [joiningyear]);
+
+//     if (students.length === 0) {
+//       return res.status(404).json({ error: 'No students found for the given joining year' });
+//     }
+
+//     let allSubjectCodes = new Set();
+//     let allJntunos = [];
+
+//     for (const student of students) {
+//       allJntunos.push(student.jntuno);
+//       const subjectsRaw = student[semesterColumn];
+
+//       if (Array.isArray(subjectsRaw)) {
+//         subjectsRaw.forEach(subject => allSubjectCodes.add(subject));
+//       } else if (typeof subjectsRaw === 'string') {
+//         try {
+//           const subjectsArray = JSON.parse(subjectsRaw);
+//           if (Array.isArray(subjectsArray)) {
+//             subjectsArray.forEach(subject => allSubjectCodes.add(subject));
+//           }
+//         } catch (jsonError) {
+//           console.error(`Error parsing subjects for jntuno ${student.jntuno}:`, jsonError);
+//         }
+//       }
+//     }
+
+//     if (allSubjectCodes.size === 0) {
+//       return res.status(404).json({ error: 'No subjects found for the given students' });
+//     }
+
+//     // Convert Set to Array for querying
+//     const subjectCodeArray = Array.from(allSubjectCodes);
+
+//     // Fetch subject names from the subjects table
+//     const placeholders = subjectCodeArray.map(() => '?').join(','); // Create placeholders (?, ?, ?)
+//     const subjectsQuery = `SELECT subjectcode, subjectname FROM subjects WHERE subjectcode IN (${placeholders})`;
+
+//     const [subjectsData] = await connection.execute(subjectsQuery, subjectCodeArray);
+
+//     // Map subject codes to names
+//     const subjectMap = {};
+//     subjectsData.forEach(({ subjectcode, subjectname }) => {
+//       subjectMap[subjectcode] = subjectname;
+//     });
+
+//     // Final response: Map subject codes to names
+//     const uniqueSubjects = subjectCodeArray.map(code => ({
+//       subjectcode: code,
+//       subjectname: subjectMap[code] || "Unknown Subject",
+//     }));
+
+//     res.status(200).json({
+//       message: 'Unique subjects and student JNTU numbers fetched successfully',
+//       joiningyear,
+//       semesternumber,
+//       uniqueSubjects, // Now includes subject names
+//       allJntunos,
+//     });
+
+//   } catch (error) {
+//     console.error('Error fetching unique subjects:', error);
+//     res.status(500).json({ error: 'Internal server error', details: error.message });
+//   }
+// });
+
+// router.get('/students/subjects/:joiningyear/:branchcode/:semesternumber', AdminAuth, async (req, res) => {
+//   try {
+//     const { joiningyear, branchcode, semesternumber } = req.params; // Extract from URL params
+
+//     if (!joiningyear || !branchcode || !semesternumber) {
+//       return res.status(400).json({ error: 'joiningyear, branchcode, and semesternumber are required' });
+//     }
+
+//     const semesterColumn = semesterMap[semesternumber];
+
+//     if (!semesterColumn) {
+//       return res.status(400).json({ error: 'Invalid semesternumber. It should be between 1 and 8.' });
+//     }
+
+//     // Fetch students' subjects based on joiningyear and branchcode
+//     const studentsQuery = `SELECT jntuno, ${semesterColumn} FROM students WHERE joiningyear = ? AND branchcode = ?`;
+//     const [students] = await connection.execute(studentsQuery, [joiningyear, branchcode]);
+
+//     if (students.length === 0) {
+//       return res.status(404).json({ error: 'No students found for the given joining year and branch code' });
+//     }
+
+//     let allSubjectCodes = new Set();
+//     let allJntunos = [];
+
+//     for (const student of students) {
+//       allJntunos.push(student.jntuno);
+//       const subjectsRaw = student[semesterColumn];
+
+//       if (Array.isArray(subjectsRaw)) {
+//         subjectsRaw.forEach(subject => allSubjectCodes.add(subject));
+//       } else if (typeof subjectsRaw === 'string') {
+//         try {
+//           const subjectsArray = JSON.parse(subjectsRaw);
+//           if (Array.isArray(subjectsArray)) {
+//             subjectsArray.forEach(subject => allSubjectCodes.add(subject));
+//           }
+//         } catch (jsonError) {
+//           console.error(`Error parsing subjects for jntuno ${student.jntuno}:`, jsonError);
+//         }
+//       }
+//     }
+
+//     if (allSubjectCodes.size === 0) {
+//       return res.status(404).json({ error: 'No subjects found for the given students' });
+//     }
+
+//     // Convert Set to Array for querying
+//     const subjectCodeArray = Array.from(allSubjectCodes);
+
+//     // Fetch subject names from the subjects table
+//     const placeholders = subjectCodeArray.map(() => '?').join(','); // Create placeholders (?, ?, ?)
+//     const subjectsQuery = `SELECT subjectcode, subjectname FROM subjects WHERE subjectcode IN (${placeholders})`;
+
+//     const [subjectsData] = await connection.execute(subjectsQuery, subjectCodeArray);
+
+//     // Map subject codes to names
+//     const subjectMap = {};
+//     subjectsData.forEach(({ subjectcode, subjectname }) => {
+//       subjectMap[subjectcode] = subjectname;
+//     });
+
+//     // Final response: Map subject codes to names
+//     const uniqueSubjects = subjectCodeArray.map(code => ({
+//       subjectcode: code,
+//       subjectname: subjectMap[code] || "Unknown Subject",
+//     }));
+
+//     res.status(200).json({
+//       message: 'Unique subjects and student JNTU numbers fetched successfully',
+//       joiningyear,
+//       branchcode,
+//       semesternumber,
+//       uniqueSubjects, // Now includes subject names
+//       allJntunos,
+//     });
+
+//   } catch (error) {
+//     console.error('Error fetching unique subjects:', error);
+//     res.status(500).json({ error: 'Internal server error', details: error.message });
+//   }
+// });
+
+
+router.get('/students/subjects/:joiningyear/:branchcode/:semesternumber', AdminAuth, async (req, res) => {
+  try {
+    const { joiningyear, branchcode, semesternumber } = req.params;
+
+    if (!joiningyear || !branchcode || !semesternumber) {
+      return res.status(400).json({ error: 'joiningyear, branchcode, and semesternumber are required' });
+    }
+
+    const semesterColumn = semesterMap[semesternumber];
+
+    if (!semesterColumn) {
+      return res.status(400).json({ error: 'Invalid semesternumber. It should be between 1 and 8.' });
+    }
+
+    // Fetch students' subjects based on joiningyear and branchcode
+    const studentsQuery = `SELECT jntuno, ${semesterColumn} FROM students WHERE joiningyear = ? AND branchcode = ?`;
+    const [students] = await connection.execute(studentsQuery, [joiningyear, branchcode]);
+
+    if (students.length === 0) {
+      return res.status(404).json({ error: 'No students found for the given joining year and branch code' });
+    }
+
+    let allSubjectCodes = new Set();
+    let allJntunos = [];
+
+    for (const student of students) {
+      allJntunos.push(student.jntuno);
+      const subjectsRaw = student[semesterColumn];
+
+      if (!subjectsRaw) continue; // Skip if null or empty
+
+      if (Array.isArray(subjectsRaw)) {
+        subjectsRaw.forEach(subject => allSubjectCodes.add(subject.trim()));
+      } else if (typeof subjectsRaw === 'string') {
+        try {
+          // Attempt to parse JSON array
+          const subjectsArray = JSON.parse(subjectsRaw);
+          if (Array.isArray(subjectsArray)) {
+            subjectsArray.forEach(subject => allSubjectCodes.add(subject.trim()));
+          } else {
+            // If JSON parsing fails, try extracting subjects using regex (handles concatenated cases)
+            const extractedSubjects = subjectsRaw.match(/[A-Z]+\d+/g);
+            if (extractedSubjects) {
+              extractedSubjects.forEach(subject => allSubjectCodes.add(subject.trim()));
+            }
+          }
+        } catch (jsonError) {
+          console.error(`Error parsing subjects for jntuno ${student.jntuno}:`, jsonError);
+          // Try extracting subjects manually if JSON parse fails
+          const extractedSubjects = subjectsRaw.match(/[A-Z]+\d+/g);
+          if (extractedSubjects) {
+            extractedSubjects.forEach(subject => allSubjectCodes.add(subject.trim()));
+          }
+        }
+      }
+    }
+
+    if (allSubjectCodes.size === 0) {
+      return res.status(404).json({ error: 'No subjects found for the given students' });
+    }
+
+    // Convert Set to Array for querying
+    const subjectCodeArray = Array.from(allSubjectCodes);
+
+    // Fetch subject names from the subjects table
+    const placeholders = subjectCodeArray.map(() => '?').join(','); // Create placeholders (?, ?, ?)
+    const subjectsQuery = `SELECT subjectcode, subjectname FROM subjects WHERE subjectcode IN (${placeholders})`;
+
+    const [subjectsData] = await connection.execute(subjectsQuery, subjectCodeArray);
+
+    // Map subject codes to names
+    const subjectMap = {};
+    subjectsData.forEach(({ subjectcode, subjectname }) => {
+      subjectMap[subjectcode] = subjectname;
+    });
+
+    // Final response: Map subject codes to names
+    const uniqueSubjects = subjectCodeArray.map(code => ({
+      subjectcode: code,
+      subjectname: subjectMap[code] || "Unknown Subject",
+    }));
+
+    res.status(200).json({
+      message: 'Unique subjects and student JNTU numbers fetched successfully',
+      joiningyear,
+      branchcode,
+      semesternumber,
+      uniqueSubjects,
+      allJntunos,
+    });
+
+  } catch (error) {
+    console.error('Error fetching unique subjects:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+});
+
 router.put('/professionalelective/bulkupdate',AdminAuth, upload.single('excelFile'), async (req, res) => {
   try {
     if (!req.file) {
@@ -753,7 +1359,7 @@ router.post('/addcourseoutcomes', AdminAuth, upload.single('file'), async (req, 
 
     res.status(500).json({ error: 'Error adding course outcomes', details: error.message });
   }
-});
+}); 
 
 
 router.post('/addsubject',AdminAuth, async (req, res) => {

@@ -22,7 +22,7 @@ const AdminLogin = () => {
       if (response.status === 200 && !response.data.error) {
         // Save the token in cookies
         Cookies.set('admintoken', response.data.token, { expires: 1 }); // Token expires in 1 day
-        navigate('/admin/uploadsubjects');
+        navigate('/admin/downloadreport');
       } else {
         setError(response.data.error || 'Invalid credentials');
       }
