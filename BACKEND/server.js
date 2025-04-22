@@ -1,6 +1,6 @@
 import express from "express";
 import cors from 'cors';
-import StudnetLogin from './routes/StudentLogin.js'
+// import StudnetLogin from './routes/StudentLogin.js'
 import CourseOutcomes from './routes/CourseOutcomes.js'
 import Ratings from './routes/Ratings.js'
 import SubjectsRoutes from './routes/SubjectsRoutes.js'
